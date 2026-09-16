@@ -11,6 +11,31 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks:
+      - hotel_booking_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    container_name: hotel_booking_api
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: "postgresql://postgres:postgres@db:5432/hotel_booking?schema=public"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - hotel_booking_net
+
+networks:
+  hotel_booking_net:
+    driver: bridge
 
 volumes:
   pgdata:
