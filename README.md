@@ -1,114 +1,242 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Hotel Booking System
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Прототип розподіленої/модульної системи бронювання номерів у готелі.
+Лабораторна робота №1 — System Design.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Зміст
 
-## Description
+- [Технологічний стек](#технологічний-стек)
+- [Архітектура](#архітектура)
+- [Доменна модель](#доменна-модель)
+- [Специфікація API](#специфікація-api)
+- [Інструкція із запуску](#інструкція-із-запуску)
+- [Перевірка персистентності даних](#перевірка-персистентності-даних)
+- [RACI-матриця](#raci-матриця--розподіл-відповідальності)
+- [Bottleneck Analysis](#bottleneck-analysis)
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+---
 
-## Project setup
+## Технологічний стек
 
-```bash
-$ npm install
+| Шар | Технологія |
+|---|---|
+| Backend Framework | NestJS (TypeScript) |
+| ORM | Prisma 6 |
+| СУБД | PostgreSQL 16 |
+| Валідація | class-validator / class-transformer |
+| API-документація | Swagger (OpenAPI 3.0) |
+| Контейнеризація | Docker, docker-compose |
+
+---
+
+## Архітектура
+
+### C4 Model — Container Diagram
+
+```mermaid
+flowchart TB
+    Client["HTTP Client<br/>(Postman / Swagger UI / Browser)"]
+
+    subgraph Docker["Docker-мережа: hotel_booking_net"]
+        API["Backend Service<br/>(NestJS, порт 3000)<br/><br/>Модулі: Hotels, Rooms, Guests, Bookings"]
+        DB[("PostgreSQL 16<br/>(порт 5432)<br/><br/>Volume: pgdata")]
+    end
+
+    Client -- "HTTP/REST + JSON<br/>(CRUD, пошук, бронювання)" --> API
+    API -- "SQL (Prisma Client)<br/>TCP :5432" --> DB
+    DB -. "дані persist на диск<br/>(volume mount)" .-> DB
 ```
 
-## Compile and run the project
+### Опис компонентів
 
-```bash
-# development
-$ npm run start
+- **Backend Service (NestJS)** — сервісний шар, що обробляє HTTP-запити, виконує валідацію вхідних даних, бізнес-логіку (перевірку конфлікту бронювань, розрахунок вартості) та звертається до БД через Prisma Client.
+- **PostgreSQL** — первинне реляційне сховище даних. Дані зберігаються на persistent volume (`pgdata`), що забезпечує збереження стану при перезапуску контейнера.
+- **Мережа `hotel_booking_net`** — ізольована bridge-мережа Docker, через яку `api` звертається до `db` за іменем сервіса (`db:5432`), без прив'язки до `localhost`.
+- Зовнішні інтеграції та черги повідомлень — відсутні в поточній версії (MVP-архітектура без асинхронної обробки).
 
-# watch mode
-$ npm run start:dev
+### API-документація (Swagger/OpenAPI)
 
-# production mode
-$ npm run start:prod
+Після запуску доступна за адресою:
+```
+http://localhost:3000/api/docs
 ```
 
-## Run tests
+---
 
-```bash
-# unit tests
-$ npm run test
+## Доменна модель
 
-# e2e tests
-$ npm run test:e2e
+### Сутності та зв'язки
 
-# test coverage
-$ npm run test:cov
+```mermaid
+erDiagram
+    HOTEL ||--o{ ROOM : "має"
+    ROOM ||--o{ BOOKING : "бронюється"
+    GUEST ||--o{ BOOKING : "робить"
+
+    HOTEL {
+        string id PK
+        string name
+        string address
+        string city
+        float rating
+    }
+    ROOM {
+        string id PK
+        string hotelId FK
+        string roomNumber
+        enum type
+        decimal pricePerNight
+        int capacity
+    }
+    GUEST {
+        string id PK
+        string fullName
+        string email UK
+        string phone
+    }
+    BOOKING {
+        string id PK
+        string roomId FK
+        string guestId FK
+        datetime checkInDate
+        datetime checkOutDate
+        enum status
+        decimal totalPrice
+    }
 ```
 
-## Deployment
+- **Hotel → Room**: один готель має багато номерів (1:N)
+- **Room ↔ Guest через Booking**: фактичний зв'язок M:N — один номер може мати багато бронювань різних гостей у різні періоди, один гість може бронювати багато номерів
+- **Бізнес-правило**: один `Room` не може мати два перетинних активних (`PENDING`/`CONFIRMED`) бронювання на одні й ті самі дати
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+### High-Load сценарій
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+Масовий паралельний `POST /bookings` на один і той самий `roomId` (наприклад, під час розпродажу/акції) — десятки-сотні одночасних запитів намагаються забронювати один номер на ті самі або перетинні дати. Це створює конкуренцію за рядки таблиці `bookings` і є основним джерелом навантаження, розглянутим у Bottleneck Analysis.
+
+---
+
+## Специфікація API
+
+| # | Метод | Endpoint | Опис | Успіх | Помилки |
+|---|-------|----------|------|-------|---------|
+| 1 | POST | `/hotels` | Створити готель | 201 | 400 |
+| 2 | GET | `/hotels/:id` | Отримати готель з номерами | 200 | 404 |
+| 3 | POST | `/rooms` | Додати номер до готелю | 201 | 400, 404, 409 |
+| 4 | GET | `/rooms/search?city=&checkIn=&checkOut=&guests=` | Пошук вільних номерів | 200 | 400 |
+| 5 | POST | `/guests` | Реєстрація гостя | 201 | 400, 409 |
+| 6 | POST | `/bookings` | Створити бронювання (перевірка доступності) | 201 | 400, 404, 409 |
+| 7 | GET | `/bookings/:id` | Деталі бронювання | 200 | 404 |
+| 8 | PATCH | `/bookings/:id/cancel` | Скасувати бронювання | 200 | 404, 409 |
+| 9 | GET | `/guests/:id/bookings` | Історія бронювань гостя | 200 | 404 |
+
+Повна інтерактивна специфікація — у Swagger UI (`/api/docs`).
+
+---
+
+## Інструкція із запуску
+
+### Вимоги
+
+- Docker Desktop (з увімкненим Docker Compose)
+
+### Холодний старт (єдина команда)
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+git clone <URL_РЕПОЗИТОРІЮ>
+cd backend
+docker-compose up --build
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Ця команда автоматично:
+1. Збирає образ backend-застосунку (multi-stage build)
+2. Піднімає PostgreSQL і дочікується його готовності (healthcheck)
+3. Застосовує міграції бази даних (`prisma migrate deploy`)
+4. Запускає NestJS-застосунок на порту `3000`
 
-## Observability
+### Перевірка роботи
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+- API: `http://localhost:3000`
+- Swagger UI: `http://localhost:3000/api/docs`
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
+### Зупинка
 
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
+```bash
+docker-compose down
+```
 
-## Resources
+*(без прапорця `-v` — том `pgdata` збережеться між запусками)*
 
-Check out a few resources that may come in handy when working with NestJS:
+---
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observer](https://observer.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+## Перевірка персистентності даних
 
-## Support
+Продемонструвати, що дані зберігаються при перезапуску контейнера БД:
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```bash
+# 1. Створити готель через POST /hotels
+# 2. Перезапустити тільки контейнер БД:
+docker-compose restart db
 
-## Stay in touch
+# 3. Дочекатись статусу healthy:
+docker ps
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+# 4. Повторити GET /hotels — раніше створені дані мають бути на місці
+```
 
-## License
+---
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+## RACI-матриця / Розподіл відповідальності
+
+| Модуль / Компонент | Відповідальний | Роль (RACI) |
+|---|---|---|
+| Доменна модель, Prisma-схема, міграції | *ПІБ учасника 1* | R, A |
+| Модуль `hotels` (CRUD) | *ПІБ учасника 1* | R, A |
+| Модуль `rooms` + пошук вільних номерів | *ПІБ учасника 2* | R, A |
+| Модуль `guests` | *ПІБ учасника 2* | R, A |
+| Модуль `bookings` + бізнес-логіка конфлікту дат | *ПІБ учасника 3* | R, A |
+| Docker / docker-compose / Dockerfile | *ПІБ учасника 3* | R, A |
+| Swagger-документація | *ПІБ учасника 1* | R |
+| Bottleneck Analysis | *ПІБ учасника 4* | R, A |
+| Архітектурна схема (C4) | *ПІБ учасника 4* | R |
+| README / оформлення | *Усі учасники* | C |
+
+*R — Responsible (виконавець), A — Accountable (відповідальний за результат), C — Consulted (консультує)*
+
+> **Примітка:** заповнити реальними іменами учасників команди перед здачею.
+
+---
+
+## Bottleneck Analysis
+
+Теоретичний аналіз потенційних точок деградації системи під високим навантаженням (на основі спроєктованої архітектури).
+
+### 1. Race Condition при паралельному бронюванні одного номера
+
+- **Компонент / Операція / Запит:** `POST /bookings` — одночасні запити на бронювання одного й того самого `roomId` на дати, що перетинаються (High-Load сценарій).
+- **Причина (Root Cause):** Незважаючи на використання транзакції з рівнем ізоляції `Serializable`, під високим навантаженням PostgreSQL при конфлікті серіалізації відхиляє одну з конкурентних транзакцій (`SerializationFailure`, SQLSTATE 40001), а не блокує її мовчки. Це Lock Contention на рівні рядків таблиці `bookings` — усі паралельні транзакції змагаються за один і той самий діапазон дат одного `roomId`.
+- **Симптоматика та прояв:** Зростання Latency p99 для `POST /bookings` (транзакції очікують одна одну або відкатуються і потребують retry); падіння Throughput/RPS пропорційно кількості конкурентних запитів на один номер; сплеск помилок `could not serialize access due to concurrent update` у логах БД.
+
+### 2. N+1 Problem та over-fetching при отриманні вкладених даних
+
+- **Компонент / Операція / Запит:** `GET /bookings`, `GET /hotels/:id` (з `include: rooms`), `GET /guests/:id/bookings`.
+- **Причина (Root Cause):** Prisma генерує ефективні JOIN-и через `include`, але при зростанні обсягу пов'язаних даних (готель із тисячами номерів, велика історія бронювань) один запит повертає надлишковий обсяг даних без пагінації (over-fetching). Це навантажує канал БД↔API та серіалізацію JSON на стороні Node.js.
+- **Симптоматика та прояв:** Зростання Latency p99 пропорційно кількості пов'язаних записів; підвищене використання пам'яті процесом Node.js під час буферизації великого JSON; ризик деградації через відсутність пагінації при масштабуванні даних.
+
+### 3. Відсутність індексів при масштабуванні пошуку
+
+- **Компонент / Операція / Запит:** `GET /rooms/search` (фільтрація за `hotel.city`), `GET /guests/:id/bookings`.
+- **Причина (Root Cause):** Індекс наявний лише на `[roomId, checkInDate, checkOutDate]` (для перевірки конфлікту бронювань). Фільтрація за `hotel.city` вимагає JOIN з таблицею `hotels`; без індексу на `city` PostgreSQL при зростанні кількості готелів переходить від Index Scan до Sequential Scan.
+- **Симптоматика та прояв:** Нелінійне зростання латентності `GET /rooms/search` (з O(log n) до O(n)) зі збільшенням обсягу даних; підвищена утилізація CPU на стороні БД; у `EXPLAIN ANALYZE` — `Seq Scan` замість `Index Scan`.
+
+### 4. Виснаження пулу з'єднань (Connection Pool Exhaustion)
+
+- **Компонент / Операція / Запит:** Будь-який endpoint під час пікового навантаження (масове одночасне бронювання).
+- **Причина (Root Cause):** Prisma Client використовує обмежений пул з'єднань до PostgreSQL (типово ~10–13). Транзакції `$transaction` з рівнем `Serializable` утримують з'єднання довше через можливі retry при конфліктах серіалізації. При сплеску паралельних запитів частина запитів очікує в черзі на вивільнення з'єднання.
+- **Симптоматика та прояв:** Зростання Latency p99 через час очікування в черзі пулу; помилки timeout (`Timed out fetching a new connection from the pool`) у логах; Throughput/RPS виходить на плато навіть при подальшому зростанні навантаження.
+
+### Можливі напрями оптимізації (поза межами MVP)
+
+- Впровадження оптимістичних локів (`version`-поле) замість `Serializable`-транзакцій для зменшення відкатів
+- Додавання індексу на `hotels.city` та пагінації для списків
+- Збільшення розміру пулу з'єднань Prisma (`connection_limit`) і/або впровадження PgBouncer
+- Кешування результатів пошуку вільних номерів (Redis) для read-heavy навантаження
