@@ -8,8 +8,7 @@ RUN npm install
 
 COPY . .
 
-# Фіктивний DATABASE_URL потрібен лише для генерації Prisma Client на етапі збірки
-# (prisma generate валідує наявність змінної, але реально до БД не звертається)
+
 ENV DATABASE_URL="postgresql://postgres:postgres@localhost:5432/hotel_booking?schema=public"
 
 RUN npx prisma generate
