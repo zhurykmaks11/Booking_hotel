@@ -472,3 +472,31 @@ server {
     1. **Keepalived + VRRP (Virtual Router Redundancy Protocol):** Розгортання двох екземплярів Nginx (Master та Backup). Вони володіють спільною віртуальною IP-адресою (Virtual IP, VIP). Якщо Master падає, протокол VRRP за мілісекунди переносить VIP на Backup-ноду без зміни DNS.
     2. **DNS Round Robin / GeoDNS:** Реєстрація декількох IP-адрес для одного доменного імені. DNS повертає клієнтам різні IP балансувальників або враховує геолокацію.
     3. **Cloud Load Balancer (AWS ALB, Cloudflare, Google Cloud LB):** Використання розподіленої Anycast-мережі хмарного провайдера перед власними Nginx-нодами.
+
+---
+
+## Continuous Integration (DevOps, Лаб. №2)
+
+Пайплайн GitHub Actions: [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Запускається на кожен `push` у будь-яку гілку та на кожну зміну в Pull Request у `main`.
+
+| Job | Що робить | Блокує |
+|---|---|---|
+| `Lint (oxlint)` | Статичний аналіз `src/` і `test/` (`npm run lint:ci`), порушення — анотаціями у PR | так |
+| `API - build & test` | `npm ci` (кеш npm) → `prisma generate` → **Build** → **Unit tests** → міграції → **E2E tests** (Postgres як service container) | так |
+| `Nginx - build & test` | **Build** образу `nginx/Dockerfile` → **Test** `nginx -t` для основного та альтернативних конфігів | так |
+| `Docker image (api / nginx)` | Після успіху всіх job: збірка образу (buildx, кеш GHA) → скан Grype (CRITICAL блокує) → push у GHCR (лише для `push`) | так |
+
+Lint, API і Nginx виконуються паралельно й незалежно.
+
+**Теги образів** у `ghcr.io/zhurykmaks11/booking-hotel-{api,nginx}`: `sha-<commit>` на кожен push, `latest` — лише з гілки `main`. Автентифікація — вбудований `GITHUB_TOKEN`, жодних облікових даних у репозиторії.
+
+**Запуск з опублікованих образів:**
+
+```bash
+docker login ghcr.io -u <github-user>          # якщо пакети приватні (токен з read:packages)
+docker compose -f docker-compose.yml -f docker-compose.registry.yml pull
+docker compose -f docker-compose.yml -f docker-compose.registry.yml up -d --no-build
+curl http://localhost/health
+```
+
+**Захист `main`:** заборонено прямий push, обов'язковий Pull Request, усі checks пайплайну — required status checks.
