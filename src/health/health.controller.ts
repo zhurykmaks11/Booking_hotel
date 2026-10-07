@@ -24,7 +24,7 @@ export class HealthController {
         try {
             // Перевіряємо реальне з'єднання з PostgreSQL через Prisma
             await this.prisma.$queryRaw`SELECT 1`;
-        } catch (error) {
+        } catch {
             dbStatus = 'DISCONNECTED';
             isHealthy = false;
         }
