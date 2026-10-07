@@ -19,17 +19,63 @@ services:
       timeout: 5s
       retries: 5
 
-  api:
+  api-1:
     build: .
-    container_name: hotel_booking_api
+    container_name: hotel_booking_api_1
     restart: always
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     environment:
       DATABASE_URL: "postgresql://postgres:postgres@db:5432/hotel_booking?schema=public"
+      SYNTHETIC_DELAY_MS: "0"
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - hotel_booking_net
+
+  api-2:
+    build: .
+    container_name: hotel_booking_api_2
+    restart: always
+    expose:
+      - "3000"
+    environment:
+      DATABASE_URL: "postgresql://postgres:postgres@db:5432/hotel_booking?schema=public"
+      SYNTHETIC_DELAY_MS: "0"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - hotel_booking_net
+
+  api-3:
+    build: .
+    container_name: hotel_booking_api_3
+    restart: always
+    expose:
+      - "3000"
+    environment:
+      DATABASE_URL: "postgresql://postgres:postgres@db:5432/hotel_booking?schema=public"
+      SYNTHETIC_DELAY_MS: "0"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - hotel_booking_net
+
+  nginx:
+    image: nginx:alpine
+    container_name: hotel_booking_nginx
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api-1
+      - api-2
+      - api-3
     networks:
       - hotel_booking_net
 
