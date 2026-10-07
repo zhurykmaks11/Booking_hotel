@@ -3,3 +3,7 @@ dist
 .git
 .env
 *.log
+.github
+coverage
+jest-storage*
+scratch_storage

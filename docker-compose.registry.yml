@@ -1,0 +1,15 @@
+# Запуск кластера з образів, опублікованих у GitHub Container Registry (замість локальної збірки).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.registry.yml pull
+#   docker compose -f docker-compose.yml -f docker-compose.registry.yml up -d --no-build
+#
+# Конкретна збірка:  IMAGE_TAG=sha-abc1234 docker compose -f docker-compose.yml -f docker-compose.registry.yml up -d --no-build
+services:
+  api-1:
+    image: ghcr.io/zhurykmaks11/booking-hotel-api:${IMAGE_TAG:-latest}
+  api-2:
+    image: ghcr.io/zhurykmaks11/booking-hotel-api:${IMAGE_TAG:-latest}
+  api-3:
+    image: ghcr.io/zhurykmaks11/booking-hotel-api:${IMAGE_TAG:-latest}
+  nginx:
+    image: ghcr.io/zhurykmaks11/booking-hotel-nginx:${IMAGE_TAG:-latest}

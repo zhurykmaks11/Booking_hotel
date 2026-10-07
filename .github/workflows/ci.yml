@@ -1,0 +1,200 @@
+name: CI
+
+# Пайплайн запускається:
+#  - на кожен push у будь-яку гілку (робочі гілки + main);
+#  - на кожну зміну в Pull Request, націленому на main.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+
+# Новий запуск для тієї ж гілки/PR скасовує попередній, що ще виконується.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+  REGISTRY: ghcr.io
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Статичний аналіз (блокуючий). Порушення відображаються як анотації в PR.
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint (oxlint)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Static analysis (oxlint)
+        run: npm run lint:ci
+
+  # ---------------------------------------------------------------------------
+  # Сервіс API (NestJS + Prisma): Build -> Unit tests -> E2E tests (Postgres)
+  # ---------------------------------------------------------------------------
+  api:
+    name: API - build & test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hotel_booking
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/hotel_booking?schema=public
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js (with npm cache)
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test -- --ci
+
+      - name: Apply DB migrations
+        run: npx prisma migrate deploy
+
+      - name: E2E tests
+        run: npm run test:e2e -- --ci
+
+  # ---------------------------------------------------------------------------
+  # Сервіс Nginx (балансувальник): Build образу -> Test конфігурацій (nginx -t)
+  # ---------------------------------------------------------------------------
+  nginx:
+    name: Nginx - build & test
+    runs-on: ubuntu-latest
+    env:
+      # upstream-хости з docker-compose; для перевірки синтаксису достатньо, щоб вони резолвились
+      UPSTREAM_HOSTS: --add-host api-1:127.0.0.1 --add-host api-2:127.0.0.1 --add-host api-3:127.0.0.1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build
+        run: docker build -f nginx/Dockerfile -t booking-hotel-nginx:ci .
+
+      - name: Test default config baked into image
+        run: docker run --rm $UPSTREAM_HOSTS booking-hotel-nginx:ci nginx -t
+
+      - name: Test alternative balancing configs
+        run: |
+          for conf in nginx/nginx.*.conf; do
+            echo "::group::nginx -t  $conf"
+            docker run --rm $UPSTREAM_HOSTS \
+              -v "$PWD/$conf:/etc/nginx/nginx.conf:ro" \
+              booking-hotel-nginx:ci nginx -t
+            echo "::endgroup::"
+          done
+
+  # ---------------------------------------------------------------------------
+  # Контейнерні образи: збірка -> сканування -> публікація (лише для push)
+  # Запускається тільки після успіху ВСІХ попередніх завдань.
+  # ---------------------------------------------------------------------------
+  docker:
+    name: Docker image (${{ matrix.service }})
+    needs: [lint, api, nginx]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: api
+            dockerfile: Dockerfile
+          - service: nginx
+            dockerfile: nginx/Dockerfile
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute image name (lowercase)
+        run: echo "IMAGE=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/booking-hotel-${{ matrix.service }}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Теги: sha-<commit> завжди; latest — тільки для гілки main
+      - name: Docker metadata (tags & labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: |
+            latest=false
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build image (local only, no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          load: true
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      # Блокуючий крок: CRITICAL-вразливості, для яких є виправлення, валять job
+      - name: Vulnerability scan (Grype)
+        uses: anchore/scan-action@v6
+        with:
+          image: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+          fail-build: true
+          severity-cutoff: critical
+          only-fixed: true
+          output-format: table
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image
+        if: github.event_name == 'push'
+        run: docker push --all-tags "$IMAGE"
