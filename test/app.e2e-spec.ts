@@ -3,6 +3,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import * as request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { CacheService } from '../src/cache/cache.service';
 
 describe('Hotel Booking API (e2e)', () => {
     let app: INestApplication;
@@ -12,6 +13,13 @@ describe('Hotel Booking API (e2e)', () => {
     let roomId: string;
     let guestId: string;
     let bookingId: string;
+
+    // Якщо Redis налаштований (REDIS_URL), очікуємо HIT/MISS; без нього — BYPASS.
+    let cacheEnabled = false;
+    const expectCache = (res: { headers: Record<string, unknown> }, whenEnabled: 'HIT' | 'MISS') =>
+        expect(res.headers['x-cache']).toBe(cacheEnabled ? whenEnabled : 'BYPASS');
+
+    const searchQuery = { city: 'Kyiv', checkIn: '2027-01-01', checkOut: '2027-01-04', guests: 2 };
 
     beforeAll(async () => {
         const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -29,6 +37,7 @@ describe('Hotel Booking API (e2e)', () => {
         await app.init();
 
         prisma = app.get(PrismaService);
+        cacheEnabled = await app.get(CacheService).whenReady(2000);
     });
 
     afterAll(async () => {
@@ -66,6 +75,44 @@ describe('Hotel Booking API (e2e)', () => {
         roomId = res.body.id;
     });
 
+    // ---------------- Лаб. №4: розподілений кеш ----------------
+
+    it('GET /hotels/:id — перший запит MISS, повторний HIT', async () => {
+        const first = await request(app.getHttpServer()).get(`/hotels/${hotelId}`).expect(200);
+        expectCache(first, 'MISS');
+        expect(first.headers['x-cache-key']).toBe(`booking:hotel:${hotelId}`);
+
+        const second = await request(app.getHttpServer()).get(`/hotels/${hotelId}`).expect(200);
+        expectCache(second, 'HIT');
+        expect(second.body).toEqual(first.body);
+        expect(second.body.rooms).toHaveLength(1);
+    });
+
+    it('PATCH /hotels/:id — інвалідація: наступне читання MISS зі свіжими даними', async () => {
+        await request(app.getHttpServer())
+            .patch(`/hotels/${hotelId}`)
+            .send({ name: 'E2E Test Hotel (renamed)' })
+            .expect(200);
+
+        const res = await request(app.getHttpServer()).get(`/hotels/${hotelId}`).expect(200);
+        expectCache(res, 'MISS');
+        expect(res.body.name).toBe('E2E Test Hotel (renamed)');
+    });
+
+    it('GET /rooms/search — MISS, потім HIT для тих самих параметрів', async () => {
+        const first = await request(app.getHttpServer()).get('/rooms/search').query(searchQuery).expect(200);
+        expectCache(first, 'MISS');
+        expect(first.body.map((r: { id: string }) => r.id)).toContain(roomId);
+
+        // Ті самі параметри в іншому порядку і регістрі → той самий ключ
+        const second = await request(app.getHttpServer())
+            .get('/rooms/search')
+            .query({ guests: 2, checkOut: '2027-01-04', checkIn: '2027-01-01', city: 'kyiv' })
+            .expect(200);
+        expect(second.headers['x-cache-key']).toBe(first.headers['x-cache-key']);
+        expectCache(second, 'HIT');
+    });
+
     it('POST /guests — registers a guest', async () => {
         const res = await request(app.getHttpServer())
             .post('/guests')
@@ -89,6 +136,12 @@ describe('Hotel Booking API (e2e)', () => {
 
         expect(res.body.totalPrice).toBe('3000'); // 3 ночі * 1000
         bookingId = res.body.id;
+    });
+
+    it('GET /rooms/search після бронювання — MISS, заброньований номер зник із результатів', async () => {
+        const res = await request(app.getHttpServer()).get('/rooms/search').query(searchQuery).expect(200);
+        expectCache(res, 'MISS');
+        expect(res.body.map((r: { id: string }) => r.id)).not.toContain(roomId);
     });
 
     it('POST /bookings — rejects overlapping dates with 409', async () => {
