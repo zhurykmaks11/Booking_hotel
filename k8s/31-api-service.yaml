@@ -1,0 +1,19 @@
+# Доступ до API: всередині кластера booking-api:80, з хоста — NodePort 30080
+# (у minikube з драйвером docker на Windows: minikube service booking-api -n booking-hotel --url).
+apiVersion: v1
+kind: Service
+metadata:
+  name: booking-api
+  namespace: booking-hotel
+  labels:
+    app.kubernetes.io/name: booking-api
+    app.kubernetes.io/part-of: booking-hotel
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: booking-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      nodePort: 30080

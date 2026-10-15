@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { HotelsService } from './hotels.service';
 import { CreateHotelDto } from './dto/create-hotel.dto';
@@ -25,10 +26,13 @@ export class HotelsController {
 
     @Get(':id')
     @ApiOperation({ summary: 'Отримати готель за id (з номерами)' })
-    @ApiResponse({ status: 200, description: 'Готель знайдено' })
+    @ApiResponse({ status: 200, description: 'Готель знайдено. Заголовок X-Cache: HIT (Redis) / MISS (БД) / BYPASS (Redis недоступний)' })
     @ApiResponse({ status: 404, description: 'Готель не знайдено' })
-    findOne(@Param('id') id: string) {
-        return this.hotelsService.findOne(id);
+    async findOne(@Param('id') id: string, @Res({ passthrough: true }) res: Response) {
+        const { data, cache, key } = await this.hotelsService.findOneCached(id);
+        res.setHeader('X-Cache', cache);
+        res.setHeader('X-Cache-Key', key);
+        return data;
     }
 
     @Patch(':id')

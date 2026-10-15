@@ -1,0 +1,19 @@
+# Несекретна конфігурація. Підключається до контейнерів як змінні оточення (envFrom / configMapKeyRef).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: booking-config
+  namespace: booking-hotel
+  labels:
+    app.kubernetes.io/part-of: booking-hotel
+data:
+  # --- API ---
+  NODE_ENV: "production"
+  PORT: "3000"
+  # Штучна затримка кожного запиту, мс (0 = вимкнено)
+  SYNTHETIC_DELAY_MS: "0"
+  # Адреса Redis — DNS-ім'я Service redis у цьому namespace
+  REDIS_URL: "redis://redis:6379"
+  # --- PostgreSQL ---
+  POSTGRES_DB: "hotel_booking"
+  POSTGRES_USER: "postgres"

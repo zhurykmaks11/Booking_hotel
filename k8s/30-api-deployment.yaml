@@ -1,0 +1,77 @@
+# API (NestJS + Prisma). Stateless, тому масштабується горизонтально.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: booking-api
+  namespace: booking-hotel
+  labels:
+    app.kubernetes.io/name: booking-api
+    app.kubernetes.io/part-of: booking-hotel
+spec:
+  replicas: 2
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: booking-api
+  # Оновлення без простою: спочатку піднімається новий под, і лише коли він Ready — гаситься старий
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: booking-api
+        app.kubernetes.io/part-of: booking-hotel
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: api
+          # Конкретна версія (не latest). Друга версія для rolling update: 1.1.0
+          image: ghcr.io/zhurykmaks11/booking-hotel-api:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          # Усі ключі ConfigMap і Secret -> змінні оточення
+          envFrom:
+            - configMapRef:
+                name: booking-config
+            - secretRef:
+                name: booking-secret
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          # Старт включає prisma migrate deploy — даємо до 150 с, liveness до цього не втручається
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          # Процес живий? Не залежить від БД, щоб збій Postgres не перезапускав API
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Готовий приймати трафік? /health перевіряє з'єднання з PostgreSQL
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          lifecycle:
+            # Даємо Service/Ingress час прибрати под з балансування до SIGTERM
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]

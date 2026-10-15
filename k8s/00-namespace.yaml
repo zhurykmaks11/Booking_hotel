@@ -1,0 +1,7 @@
+# Окремий namespace проєкту: усі об'єкти лабораторної створюються лише в ньому.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: booking-hotel
+  labels:
+    app.kubernetes.io/part-of: booking-hotel

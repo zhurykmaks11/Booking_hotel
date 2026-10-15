@@ -1,0 +1,15 @@
+# Постійне сховище для даних PostgreSQL (у minikube — StorageClass "standard", hostPath-провізіонер).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: booking-hotel
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: booking-hotel
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

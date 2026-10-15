@@ -5,13 +5,28 @@ import {
     BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CacheService } from '../cache/cache.service';
+import { CacheKeys } from '../cache/cache-keys';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
+// @ts-ignore
 import { BookingStatus, Prisma } from '@prisma/client';
 
 @Injectable()
 export class BookingsService {
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly cache: CacheService,
+    ) {}
+
+    /**
+     * Будь-яка зміна бронювань змінює доступність номерів, тому всі закешовані
+     * результати пошуку стають застарілими: збільшуємо версію пошуку (п. 2.5).
+     * Викликається лише ПІСЛЯ успішного запису в БД.
+     */
+    private invalidateSearch() {
+        return this.cache.bumpVersion(CacheKeys.searchVersion);
+    }
 
     async create(dto: CreateBookingDto) {
         const checkIn = new Date(dto.checkInDate);
@@ -35,7 +50,7 @@ export class BookingsService {
          * у яке може "проскочити" паралельний запит — обидва запити побачать
          * номер вільним і обидва створять бронювання на ті самі дати.
          */
-        return this.prisma.$transaction(
+        const booking = await this.prisma.$transaction(
             async (tx) => {
                 const room = await tx.room.findUnique({ where: { id: dto.roomId } });
                 if (!room) {
@@ -75,6 +90,9 @@ export class BookingsService {
             },
             { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         );
+
+        await this.invalidateSearch();
+        return booking;
     }
 
     findAll() {
@@ -96,12 +114,16 @@ export class BookingsService {
 
     async update(id: string, dto: UpdateBookingDto) {
         await this.findOne(id);
-        return this.prisma.booking.update({ where: { id }, data: dto });
+        const booking = await this.prisma.booking.update({ where: { id }, data: dto });
+        await this.invalidateSearch();
+        return booking;
     }
 
     async remove(id: string) {
         await this.findOne(id);
-        return this.prisma.booking.delete({ where: { id } });
+        const booking = await this.prisma.booking.delete({ where: { id } });
+        await this.invalidateSearch();
+        return booking;
     }
 
     // Endpoint #8: скасування бронювання
@@ -113,9 +135,11 @@ export class BookingsService {
         if (booking.status === BookingStatus.COMPLETED) {
             throw new ConflictException('Cannot cancel a completed booking');
         }
-        return this.prisma.booking.update({
+        const cancelled = await this.prisma.booking.update({
             where: { id },
             data: { status: BookingStatus.CANCELLED },
         });
+        await this.invalidateSearch();
+        return cancelled;
     }
 }
