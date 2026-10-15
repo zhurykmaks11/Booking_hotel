@@ -20,7 +20,7 @@ async function bootstrap() {
     const config = new DocumentBuilder()
         .setTitle('Hotel Booking API')
         .setDescription('API для системи бронювання номерів у готелі')
-        .setVersion('1.0')
+        .setVersion(process.env.APP_VERSION ?? 'dev')
         .addTag('hotels', 'Управління готелями')
         .addTag('rooms', 'Управління номерами та пошук')
         .addTag('guests', 'Управління гостями')
