@@ -19,6 +19,24 @@ services:
       timeout: 5s
       retries: 5
 
+  # Розподілений кеш (Лаб. №4): один Redis, спільний для всіх інстансів API.
+  # Навмисно НЕ в depends_on у API: сервіс має стартувати і працювати без Redis (graceful degradation).
+  redis:
+    image: redis:7-alpine
+    container_name: hotel_booking_redis
+    restart: always
+    # maxmemory + allkeys-lru: при заповненні пам'яті витісняються ключі, до яких найдовше не зверталися
+    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru", "--save", "", "--appendonly", "no"]
+    expose:
+      - "6379"
+    networks:
+      - hotel_booking_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   api-1:
     build: .
     container_name: hotel_booking_api_1
@@ -28,6 +46,7 @@ services:
     environment:
       DATABASE_URL: "postgresql://postgres:postgres@db:5432/hotel_booking?schema=public"
       SYNTHETIC_DELAY_MS: "0"
+      REDIS_URL: "redis://redis:6379"
     depends_on:
       db:
         condition: service_healthy
@@ -43,6 +62,7 @@ services:
     environment:
       DATABASE_URL: "postgresql://postgres:postgres@db:5432/hotel_booking?schema=public"
       SYNTHETIC_DELAY_MS: "0"
+      REDIS_URL: "redis://redis:6379"
     depends_on:
       db:
         condition: service_healthy
@@ -58,6 +78,7 @@ services:
     environment:
       DATABASE_URL: "postgresql://postgres:postgres@db:5432/hotel_booking?schema=public"
       SYNTHETIC_DELAY_MS: "0"
+      REDIS_URL: "redis://redis:6379"
     depends_on:
       db:
         condition: service_healthy

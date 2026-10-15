@@ -7,6 +7,7 @@
  *   node scripts/benchmark.js failover [-d 20] [-u http://localhost]
  *   node scripts/benchmark.js asymmetric [-n 30] [-c 6] [-u http://localhost]
  *   node scripts/benchmark.js switch <roundrobin|leastconn|iphash|weighted>
+ *   node scripts/benchmark.js cache [-n 30] [-city Kyiv] [-u http://localhost]   (Лаб. №4: Cold vs Hot)
  */
 
 const http = require('http');
@@ -40,6 +41,7 @@ function sendRequest(url, headers = {}) {
                     status: res.statusCode,
                     instanceId: res.headers['x-instance-id'] || 'unknown',
                     upstreamAddr: res.headers['x-upstream-addr'] || 'unknown',
+                    cache: res.headers['x-cache'] || 'none',
                     duration,
                     data,
                 });
@@ -235,6 +237,77 @@ function switchAlgorithm(algorithm) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Лаб. №4: порівняння холодних (Cache MISS) і гарячих (Cache HIT) запитів
+// ---------------------------------------------------------------------------
+function addDays(date, days) {
+    const d = new Date(date);
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+}
+
+function summarize(latencies) {
+    const sorted = [...latencies].sort((a, b) => a - b);
+    const avg = sorted.reduce((a, b) => a + b, 0) / sorted.length;
+    return {
+        avg: avg.toFixed(1),
+        p50: sorted[Math.floor(sorted.length * 0.5)],
+        p95: sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))],
+    };
+}
+
+async function runCacheTest() {
+    const total = parseInt(getArg('-n', '30'), 10);
+    const city = getArg('-city', '');
+    const cityParam = city ? `city=${encodeURIComponent(city)}&` : '';
+    const searchUrl = (checkIn) =>
+        `${baseUrl}/rooms/search?${cityParam}checkIn=${checkIn}&checkOut=${addDays(checkIn, 3)}&guests=1`;
+
+    console.log(`\n=============================================================`);
+    console.log(`   ТЕСТ КЕШУВАННЯ: COLD (MISS) vs HOT (HIT)`);
+    console.log(`   Ендпоінт: GET /rooms/search, запитів у кожній серії: ${total}`);
+    console.log(`=============================================================\n`);
+
+    // COLD: кожен запит з унікальними датами → унікальний ключ → завжди MISS (читання з PostgreSQL).
+    // Зсув від поточного часу, щоб повторний запуск тесту не потрапляв у ключі попереднього.
+    const base = addDays('2030-01-01', Math.floor(Date.now() / 1000) % 3000);
+    const cold = [];
+    const coldStatus = {};
+    for (let i = 0; i < total; i++) {
+        const res = await sendRequest(searchUrl(addDays(base, i * 7)));
+        cold.push(res.duration);
+        coldStatus[res.cache] = (coldStatus[res.cache] || 0) + 1;
+    }
+
+    // HOT: один і той самий запит; перший прогріває кеш (не враховується), далі — HIT з Redis.
+    const hotUrl = searchUrl(base);
+    await sendRequest(hotUrl);
+    const hot = [];
+    const hotStatus = {};
+    for (let i = 0; i < total; i++) {
+        const res = await sendRequest(hotUrl);
+        hot.push(res.duration);
+        hotStatus[res.cache] = (hotStatus[res.cache] || 0) + 1;
+    }
+
+    const c = summarize(cold);
+    const h = summarize(hot);
+    const fmt = (o) => Object.entries(o).map(([k, v]) => `${k}=${v}`).join(', ');
+
+    console.log(`------------------------ РЕЗУЛЬТАТИ ------------------------`);
+    console.log(`  Серія           X-Cache                  avg     p50    p95`);
+    console.log(`  Cold (MISS)     ${fmt(coldStatus).padEnd(24)} ${String(c.avg).padStart(6)}ms ${String(c.p50).padStart(4)}ms ${String(c.p95).padStart(4)}ms`);
+    console.log(`  Hot  (HIT)      ${fmt(hotStatus).padEnd(24)} ${String(h.avg).padStart(6)}ms ${String(h.p50).padStart(4)}ms ${String(h.p95).padStart(4)}ms`);
+    console.log(`----------------------------------------------------------`);
+    if (Number(h.avg) > 0) {
+        console.log(`  Прискорення за середнім часом: ×${(Number(c.avg) / Number(h.avg)).toFixed(1)}`);
+    }
+    if (hotStatus.BYPASS) {
+        console.log(`  \x1b[33mУвага: Redis недоступний (BYPASS) — усі запити йшли в БД.\x1b[0m`);
+    }
+    console.log('');
+}
+
 async function main() {
     switch (command.toLowerCase()) {
         case 'distribution':
@@ -252,12 +325,16 @@ async function main() {
         case 'switch':
             switchAlgorithm(args[1]);
             break;
+        case 'cache':
+            await runCacheTest();
+            break;
         default:
             console.log(`Використання:`);
             console.log(`  node scripts/benchmark.js distribution [-n 30]`);
             console.log(`  node scripts/benchmark.js failover [-d 20]`);
             console.log(`  node scripts/benchmark.js asymmetric [-n 30] [-c 6]`);
             console.log(`  node scripts/benchmark.js switch <roundrobin|leastconn|iphash|weighted>`);
+            console.log(`  node scripts/benchmark.js cache [-n 30] [-city Kyiv]`);
     }
 }
 
