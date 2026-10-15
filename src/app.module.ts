@@ -2,6 +2,7 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
+import { CacheModule } from './cache/cache.module';
 import { HotelsModule } from './hotels/hotels.module';
 import { RoomsModule } from './rooms/rooms.module';
 import { GuestsModule } from './guests/guests.module';
@@ -13,6 +14,7 @@ import { SyntheticDelayMiddleware } from './common/middleware/synthetic-delay.mi
 @Module({
     imports: [
         PrismaModule,
+        CacheModule,
         HotelsModule,
         RoomsModule,
         GuestsModule,

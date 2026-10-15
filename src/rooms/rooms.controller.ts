@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { RoomsService } from './rooms.service';
 import { CreateRoomDto } from './dto/create-room.dto';
@@ -27,9 +28,12 @@ export class RoomsController {
 
     @Get('search')
     @ApiOperation({ summary: 'Пошук вільних номерів за критеріями (місто, дати, кількість гостей)' })
-    @ApiResponse({ status: 200, description: 'Список вільних номерів' })
-    search(@Query() searchRoomDto: SearchRoomDto) {
-        return this.roomsService.search(searchRoomDto);
+    @ApiResponse({ status: 200, description: 'Список вільних номерів. Заголовок X-Cache: HIT (Redis) / MISS (БД) / BYPASS (Redis недоступний)' })
+    async search(@Query() searchRoomDto: SearchRoomDto, @Res({ passthrough: true }) res: Response) {
+        const { data, cache, key } = await this.roomsService.searchCached(searchRoomDto);
+        res.setHeader('X-Cache', cache);
+        res.setHeader('X-Cache-Key', key);
+        return data;
     }
 
     @Get(':id')

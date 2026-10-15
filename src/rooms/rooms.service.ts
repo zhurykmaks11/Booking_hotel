@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CacheService } from '../cache/cache.service';
+import { CacheKeys, CacheTtl } from '../cache/cache-keys';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { UpdateRoomDto } from './dto/update-room.dto';
 import { SearchRoomDto } from './dto/search-room.dto';
@@ -7,7 +9,17 @@ import { BookingStatus } from '@prisma/client';
 
 @Injectable()
 export class RoomsService {
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly cache: CacheService,
+    ) {}
+
+    /** Скидає кеш, на який впливає зміна номерів: картки готелів і всі результати пошуку. */
+    private async invalidateForRooms(...hotelIds: string[]) {
+        const unique = [...new Set(hotelIds.filter(Boolean))];
+        await this.cache.invalidate(...unique.map((id) => CacheKeys.hotel(id)));
+        await this.cache.bumpVersion(CacheKeys.searchVersion);
+    }
 
     async create(createRoomDto: CreateRoomDto) {
         const hotel = await this.prisma.hotel.findUnique({
@@ -31,7 +43,9 @@ export class RoomsService {
             );
         }
 
-        return this.prisma.room.create({ data: createRoomDto });
+        const room = await this.prisma.room.create({ data: createRoomDto });
+        await this.invalidateForRooms(room.hotelId);
+        return room;
     }
 
     findAll() {
@@ -49,7 +63,19 @@ export class RoomsService {
         return room;
     }
 
-    // Endpoint #4: пошук вільних номерів за критеріями
+    /**
+     * GET /rooms/search через кеш (Cache-Aside).
+     * Ключ містить поточну версію пошуку: після будь-якої мутації (бронювання, номери, готелі)
+     * версія збільшується, і всі старі результати пошуку автоматично стають недосяжними.
+     */
+    async searchCached(dto: SearchRoomDto) {
+        const version = await this.cache.getVersion(CacheKeys.searchVersion);
+        return this.cache.getOrSet(CacheKeys.roomsSearch(version, dto), CacheTtl.roomsSearch, () =>
+            this.search(dto),
+        );
+    }
+
+    // Endpoint #4: пошук вільних номерів за критеріями (читання напряму з БД)
     async search(dto: SearchRoomDto) {
         const checkIn = new Date(dto.checkIn);
         const checkOut = new Date(dto.checkOut);
@@ -73,15 +99,20 @@ export class RoomsService {
     }
 
     async update(id: string, updateRoomDto: UpdateRoomDto) {
-        await this.findOne(id);
-        return this.prisma.room.update({
+        const before = await this.findOne(id);
+        const room = await this.prisma.room.update({
             where: { id },
             data: updateRoomDto,
         });
+        // Номер міг переїхати в інший готель — скидаємо картки обох готелів.
+        await this.invalidateForRooms(before.hotelId, room.hotelId);
+        return room;
     }
 
     async remove(id: string) {
         await this.findOne(id);
-        return this.prisma.room.delete({ where: { id } });
+        const room = await this.prisma.room.delete({ where: { id } });
+        await this.invalidateForRooms(room.hotelId);
+        return room;
     }
 }

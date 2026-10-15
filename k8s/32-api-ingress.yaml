@@ -1,0 +1,23 @@
+# Єдина точка входу через ingress-nginx (minikube addons enable ingress).
+# Хост booking-hotel.local -> 127.0.0.1 у hosts-файлі + запущений `minikube tunnel`.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: booking-api
+  namespace: booking-hotel
+  labels:
+    app.kubernetes.io/name: booking-api
+    app.kubernetes.io/part-of: booking-hotel
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: booking-hotel.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: booking-api
+                port:
+                  name: http

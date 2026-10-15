@@ -1,15 +1,19 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BookingsService } from './bookings.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { CacheService } from '../cache/cache.service';
+import { CacheKeys } from '../cache/cache-keys';
 import {
     NotFoundException,
     ConflictException,
     BadRequestException,
 } from '@nestjs/common';
+// @ts-ignore
 import { BookingStatus } from '@prisma/client';
 
 describe('BookingsService', () => {
     let service: BookingsService;
+    let cache: { bumpVersion: jest.Mock; invalidate: jest.Mock };
     let prisma: {
         booking: {
             findFirst: jest.Mock;
@@ -76,15 +80,22 @@ describe('BookingsService', () => {
             $transaction: jest.fn(),
         };
 
+        const cacheMock = {
+            bumpVersion: jest.fn().mockResolvedValue(undefined),
+            invalidate: jest.fn().mockResolvedValue(undefined),
+        };
+
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 BookingsService,
                 { provide: PrismaService, useValue: prismaMock },
+                { provide: CacheService, useValue: cacheMock },
             ],
         }).compile();
 
         service = module.get<BookingsService>(BookingsService);
         prisma = module.get(PrismaService);
+        cache = module.get(CacheService);
     });
 
     afterEach(() => {
@@ -121,6 +132,8 @@ describe('BookingsService', () => {
             expect(prisma.guest.findUnique).toHaveBeenCalledWith({
                 where: { id: dto.guestId },
             });
+            // Нове бронювання змінює доступність — кеш пошуку інвалідовано
+            expect(cache.bumpVersion).toHaveBeenCalledWith(CacheKeys.searchVersion);
         });
 
         it('should throw BadRequestException when checkOutDate is before checkInDate', async () => {
@@ -153,6 +166,8 @@ describe('BookingsService', () => {
             });
 
             await expect(service.create(dto)).rejects.toThrow(NotFoundException);
+            // Невдалий запис не повинен скидати кеш
+            expect(cache.bumpVersion).not.toHaveBeenCalled();
         });
 
         it('should throw ConflictException when dates overlap with an existing booking', async () => {
@@ -230,6 +245,7 @@ describe('BookingsService', () => {
                 where: { id: 'booking-1' },
                 data: { status: BookingStatus.CANCELLED },
             });
+            expect(cache.bumpVersion).toHaveBeenCalledWith(CacheKeys.searchVersion);
         });
 
         it('should throw ConflictException when booking is already cancelled', async () => {
@@ -285,6 +301,7 @@ describe('BookingsService', () => {
             expect(prisma.booking.delete).toHaveBeenCalledWith({
                 where: { id: 'booking-1' },
             });
+            expect(cache.bumpVersion).toHaveBeenCalledWith(CacheKeys.searchVersion);
         });
 
         it('should throw NotFoundException when booking does not exist', async () => {

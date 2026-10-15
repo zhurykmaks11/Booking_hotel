@@ -25,6 +25,8 @@
   - [4. Реалізація Health Check та Fault Tolerance](#4-реалізація-health-check-та-fault-tolerance)
   - [5. Scale-out експеримент та системний аналіз Bottlenecks](#5-scale-out-експеримент-та-системний-аналіз-bottlenecks)
   - [6. Інструкція до захисту та теоретичні питання](#6-інструкція-до-захисту-та-теоретичні-питання)
+- [Розподілене кешування (Лаб. №4)](#розподілене-кешування-лаб-4)
+- [Розгортання в Kubernetes (DevOps, Лаб. №3)](#розгортання-в-kubernetes-devops-лаб-3)
 
 ---
 
@@ -44,7 +46,7 @@
 
 ## Архітектура
 
-### C4 Model — Container Diagram (Лаб. №3: Балансований масштабований кластер)
+### C4 Model — Container Diagram (Лаб. №4: масштабований кластер з розподіленим кешем)
 
 ```mermaid
 flowchart TB
@@ -58,6 +60,7 @@ flowchart TB
         API3["Backend Service — api-3<br/>(NestJS, внутр. :3000)<br/>X-Instance-ID: hostname"]
         
         DB[("PostgreSQL 16<br/>(порт 5432)<br/>Volume: pgdata")]
+        Redis[("Redis 7 — Distributed Cache<br/>(внутр. :6379)<br/>maxmemory 128mb, allkeys-lru")]
     end
 
     Client -- "HTTP/REST + JSON (порт 80)" --> Nginx
@@ -68,6 +71,10 @@ flowchart TB
     API1 -- "SQL (Prisma Client)" --> DB
     API2 -- "SQL (Prisma Client)" --> DB
     API3 -- "SQL (Prisma Client)" --> DB
+
+    API1 -. "Cache-Aside<br/>GET / SET EX / DEL / INCR" .-> Redis
+    API2 -. "Cache-Aside" .-> Redis
+    API3 -. "Cache-Aside" .-> Redis
     
     DB -. "дані persist на диск<br/>(volume mount)" .-> DB
 ```
@@ -77,6 +84,7 @@ flowchart TB
 - **Nginx (Load Balancer & Reverse Proxy)** — єдина точка входу (`Single Entry Point`, порт 80). Здійснює балансування трафіку між репліками (`api-1`, `api-2`, `api-3`), додає діагностичні заголовки (`X-Upstream-Addr`, `X-Upstream-Response-Time`), виконує пасивний Health Checking та миттєвий Failover за допомогою `proxy_next_upstream`.
 - **Backend Services (`api-1`, `api-2`, `api-3`)** — пул повністю ідентичних, незалежних, взаємозамінних stateless-екземплярів NestJS. Не діляться внутрішньою пам'яттю, ідентифікують себе через заголовок `X-Instance-ID`, мають вбудований endpoint `GET /health` та підтримку симуляції затримок.
 - **PostgreSQL** — єдине джерело істини (`Single Source of Truth`). Зберігає стан на persistent volume (`pgdata`).
+- **Redis (Distributed Cache)** — спільний для всіх інстансів кеш read-intensive запитів (паттерн Cache-Aside). Не є джерелом істини: при його недоступності API працює напряму з PostgreSQL.
 - **Мережа `hotel_booking_net`** — ізольована bridge-мережа Docker. Прямий доступ до контейнерів API ззовні закритий (повна інкапсуляція).
 
 ### API-документація (Swagger/OpenAPI)
@@ -500,3 +508,296 @@ curl http://localhost/health
 ```
 
 **Захист `main`:** заборонено прямий push, обов'язковий Pull Request, усі checks пайплайну — required status checks.
+
+---
+
+## Розподілене кешування (Лаб. №4)
+
+Між інстансами API і PostgreSQL додано спільний кеш **Redis**. Read-intensive запити обслуговуються з пам'яті, а будь-яка зміна даних одразу скидає відповідні ключі. Якщо Redis недоступний, система продовжує працювати напряму з БД.
+
+### 1. Вибір об'єктів кешування
+
+| Ендпоінт | Читання / запис | Допустима застарілість | Складність запиту | Рішення |
+|---|---|---|---|---|
+| `GET /rooms/search` | Дуже часто / змінюється лише при бронюванні, зміні номерів чи готелів | ~1 хв | Висока: `rooms` ⨝ `hotels` + вкладена перевірка відсутності перетину з бронюваннями за датами | **Кешувати** (TTL 60 с) |
+| `GET /hotels/:id` | Часто / майже ніколи | Хвилини | Середня: готель + усі його номери | **Кешувати** (TTL 10 хв) |
+| `POST/PATCH/DELETE *` | Запис | — | — | Не кешувати, лише інвалідувати |
+| `GET /guests/*`, `GET /bookings/*` | Персональні дані, змінюються з кожною операцією | 0 | Низька | Не кешувати |
+| `GET /health` | Має показувати реальний стан | 0 | — | Не кешувати |
+
+**Чому застарілий пошук безпечний:** `POST /bookings` всередині Serializable-транзакції повторно перевіряє перетин дат. Якщо в кешованому результаті є номер, який щойно забронювали, клієнт отримає `409 Conflict`, а не подвійне бронювання.
+
+### 2. Інтеграція Redis
+
+- Контейнер `redis:7-alpine` у мережі `hotel_booking_net`, назовні не відкритий.
+- Усі інстанси (`api-1/2/3`) отримують `REDIS_URL=redis://redis:6379` — кеш спільний: інвалідація на одному інстансі одразу діє для всіх.
+- `--maxmemory 128mb --maxmemory-policy allkeys-lru`: при заповненні пам'яті витісняються ключі, до яких найдовше не зверталися.
+- Redis навмисно **не** входить у `depends_on` API: сервіс стартує і працює без нього.
+
+Реалізація: `src/cache/cache.service.ts` (клієнт `ioredis`), `src/cache/cache-keys.ts` (схема ключів і TTL), `src/cache/cache.module.ts` (глобальний модуль).
+
+### 3. Паттерн Cache-Aside
+
+```text
+GET → Redis GET key ─┬─ знайдено  → X-Cache: HIT    → відповідь з Redis (БД не чіпаємо)
+                     ├─ немає     → X-Cache: MISS   → SELECT з PostgreSQL → SET key EX ttl → відповідь
+                     └─ помилка / Redis недоступний
+                                  → X-Cache: BYPASS → SELECT з PostgreSQL → відповідь
+```
+
+Метод `CacheService.getOrSet(key, ttl, loader)`; використовується в `HotelsService.findOneCached()` і `RoomsService.searchCached()`.
+
+### 4. Схема ключів і TTL
+
+| Ключ | Приклад | Значення | TTL |
+|---|---|---|---|
+| `booking:hotel:{id}` | `booking:hotel:3f2a…` | Готель разом із номерами | 600 с + jitter 0–60 с |
+| `booking:rooms:search:version` | `7` | Лічильник «покоління» пошуку | без TTL |
+| `booking:rooms:search:v{version}:{sha1(params)}` | `booking:rooms:search:v7:8e5f16…` | Результат пошуку | 60 с + jitter 0–10 с |
+
+- `booking:` — простір імен застосунку, далі тип даних та ідентифікатор → колізії з іншими даними неможливі.
+- Параметри пошуку **нормалізуються** перед хешуванням: місто — `trim` + нижній регістр, дати — у канонічний ISO-формат, порожні поля — значення за замовчуванням. Тому `?city=Kyiv&guests=2` і `?guests=2&city=kyiv` дають один ключ, а різні дати чи міста — різні.
+- **Jitter** (випадкова добавка до TTL) розносить у часі моменти закінчення ключів, створених одночасно, — захист від Cache Avalanche.
+- TTL — «страховка»: навіть якщо інвалідацію десь пропущено, дані оновляться не пізніше ніж за TTL.
+
+### 5. Інвалідація
+
+Інвалідація виконується **після** успішного запису в БД.
+
+| Операція | Що скидається |
+|---|---|
+| `PATCH /hotels/:id`, `DELETE /hotels/:id` | `booking:hotel:{id}` + версія пошуку (могло змінитися місто) |
+| `POST /rooms`, `PATCH /rooms/:id`, `DELETE /rooms/:id` | `booking:hotel:{hotelId}` (у відповіді є список номерів) + версія пошуку |
+| `POST /bookings`, `PATCH /bookings/:id`, `PATCH /bookings/:id/cancel`, `DELETE /bookings/:id` | Версія пошуку (змінилася доступність) |
+| `POST /hotels` | Нічого (новий готель ще без номерів) |
+
+**Версіонування замість перебору ключів.** Одне бронювання робить застарілими всі результати пошуку з будь-якими параметрами. Замість `KEYS`/`SCAN` (повільно, блокує Redis) виконується `INCR booking:rooms:search:version`: нові запити будують ключі з новою версією й отримують MISS, а старі ключі ніхто більше не читає — їх прибере TTL. Операція O(1).
+
+### 6. Метрики та демонстрація
+
+- Заголовки відповіді: `X-Cache: HIT | MISS | BYPASS` і `X-Cache-Key: <ключ>`.
+- Логи кожного інстансу: `[Cache] HIT …`, `[Cache] MISS … → збережено на 63s`, `[Cache] INVALIDATE …`, `[Cache] BYPASS …`.
+- `GET /health` містить блок `cache` зі станом Redis і лічильниками hits / misses / bypasses / invalidations поточного інстансу.
+
+**Cold vs Hot:**
+
+```bash
+npm run benchmark:cache            # 30 холодних (унікальні дати → MISS) і 30 гарячих (той самий запит → HIT)
+npm run benchmark:cache -- -n 50 -city Kyiv
+```
+
+| Серія | X-Cache | avg, мс | p50, мс | p95, мс |
+|---|---|---|---|---|
+| Cold (Cache Miss, PostgreSQL) | MISS = 30 | 5,4 | 5 | 6 |
+| Hot (Cache Hit, Redis) | HIT = 30 | 2,1 | 2 | 3 |
+
+Прискорення за середнім часом — **×2,6** (30 запитів у кожній серії, через Nginx, `GET /rooms/search`).
+
+Виграш помірний, бо тестова база майже порожня: SQL-запит дешевий, і більшу частину часу займають мережа, Nginx і HTTP. Час HIT (~2 мс) не залежить від обсягу даних, а час MISS зростає разом із кількістю номерів і бронювань, тому на реальних даних різниця буде значно більшою.
+
+**Демонстрація (фактичні відповіді):**
+
+| Крок | Запит | Результат |
+|---|---|---|
+| 1 | `GET /hotels/{id}` | `200`, `X-Cache: MISS` (інстанс `293850446d5c`) |
+| 2 | `GET /hotels/{id}` | `200`, `X-Cache: HIT` (інший інстанс `ac1adade45d7` — кеш спільний) |
+| 3 | `PATCH /hotels/{id}` → `GET /hotels/{id}` | `200`, `X-Cache: MISS`, нова назва `Renamed Hotel` |
+| 4 | `docker stop hotel_booking_redis` → `GET /hotels/{id}` | `200`, `X-Cache: BYPASS`; `/health`: `"status":"UP"`, `"redis":"DISCONNECTED"` |
+
+Лічильники в `/health` (`hits`, `misses`, `bypasses`, `invalidations`) ведуться окремо в кожному інстансі API, тому значення залежать від того, який інстанс відповів.
+
+### 7. Відмовостійкість (Graceful Degradation)
+
+- Клієнт `ioredis` налаштований з `enableOfflineQueue: false`, `commandTimeout: 300 мс`, `connectTimeout: 1 с` — поки Redis недоступний, команди одразу завершуються помилкою замість очікування.
+- Будь-яка помилка Redis перехоплюється в `CacheService` і перетворюється на читання з БД (`X-Cache: BYPASS`). Клієнт ніколи не отримує 500 через кеш.
+- `retryStrategy` автоматично перепідключає клієнт, коли Redis повертається.
+
+### 8. Чекліст для захисту
+
+```bash
+docker compose up -d --build
+
+# 1. HIT / MISS
+curl -i http://localhost/hotels/<id>        # X-Cache: MISS
+curl -i http://localhost/hotels/<id>        # X-Cache: HIT
+curl -i "http://localhost/rooms/search?city=Kyiv&checkIn=2027-01-01&checkOut=2027-01-04"   # MISS, потім HIT
+
+# 2. Інвалідація
+curl -i -X PATCH http://localhost/hotels/<id> -H "Content-Type: application/json" -d '{"name":"Renamed"}'
+curl -i http://localhost/hotels/<id>        # X-Cache: MISS, нова назва
+
+# 3. Cold vs Hot
+npm run benchmark:cache
+
+# 4. Fallback
+docker stop hotel_booking_redis
+curl -i http://localhost/hotels/<id>        # 200 OK, X-Cache: BYPASS
+curl http://localhost/health                # "status":"UP", "cache":{"redis":"DISCONNECTED",...}
+docker start hotel_booking_redis            # знову MISS → HIT
+```
+
+Підказки для Windows PowerShell: використовуйте `curl.exe` замість `curl`; JSON у `-d` передавайте як `'{\"name\":\"Renamed\"}'`.
+
+### 9. Теоретичні питання
+
+- **Cache Stampede / Thundering Herd** — популярний ключ закінчився, і в ту ж мить багато запитів отримують MISS та одночасно виконують той самий важкий запит у БД. Захист: блокування на перебудову ключа (`SET lock:key 1 NX EX 5` — у БД іде лише один запит, решта чекають на кеш), jitter, проактивне оновлення ключа до закінчення TTL.
+- **Cache Avalanche** — одночасно зникає велика частина кешу (однаковий TTL для багатьох ключів або падіння Redis) — і все навантаження миттєво переходить на БД. Захист: jitter до TTL (реалізовано), fallback з обмеженням навантаження, реплікація / кластер Redis.
+- **Eviction (витіснення)** — що видаляє Redis, коли закінчилася пам'ять `maxmemory`:
+  - **LRU** (Least Recently Used) — ключ, до якого найдовше не зверталися (використано `allkeys-lru`);
+  - **LFU** (Least Frequently Used) — ключ, до якого зверталися найрідше;
+  - інші політики: `volatile-*` (лише ключі з TTL), `noeviction` (помилка запису).
+- **Expiration vs Invalidation** — Expiration: ключ пасивно зникає, коли минає TTL (гарантує оновлення не пізніше ніж за TTL). Invalidation: застосунок активно видаляє ключ або змінює версію одразу після зміни даних (гарантує свіжість наступного читання). У проєкті використовуються обидва механізми.
+
+---
+
+## Розгортання в Kubernetes (DevOps, Лаб. №3)
+
+Застосунок описано набором маніфестів у каталозі [`k8s/`](k8s/) (один файл — один об'єкт) і розгортається в локальному кластері **minikube** однією командою. Усі об'єкти живуть у namespace **`booking-hotel`**. Nginx-балансувальник з docker-compose у кластері не потрібен — його роль виконують Service (балансування між подами) та Ingress (єдина точка входу).
+
+### 1. Склад маніфестів
+
+| Файл | Об'єкт | Призначення |
+|---|---|---|
+| `00-namespace.yaml` | Namespace `booking-hotel` | ізоляція об'єктів проєкту (префікс `00-` — створюється першим) |
+| `01-configmap.yaml` | ConfigMap `booking-config` | несекретні параметри (див. нижче) |
+| `02-secret.yaml` | Secret `booking-secret` | пароль БД і рядок підключення |
+| `10-postgres-pvc.yaml` | PersistentVolumeClaim `postgres-data` | 1 Gi для даних PostgreSQL |
+| `11-postgres-deployment.yaml` | Deployment `postgres` | PostgreSQL 16, 1 репліка, стратегія `Recreate` |
+| `12-postgres-service.yaml` | Service `postgres` (ClusterIP) | `postgres:5432` всередині кластера |
+| `20-redis-deployment.yaml` | Deployment `redis` | розподілений кеш (Лаб. №4) |
+| `21-redis-service.yaml` | Service `redis` (ClusterIP) | `redis:6379` всередині кластера |
+| `30-api-deployment.yaml` | Deployment `booking-api` | API, 2 репліки, requests/limits, startup/liveness/readiness-проби |
+| `31-api-service.yaml` | Service `booking-api` (NodePort 30080) | доступ всередині кластера (`booking-api:80`) і з хоста |
+| `32-api-ingress.yaml` | Ingress `booking-api` | `http://booking-hotel.local/` через ingress-nginx |
+
+**Проби API:**
+- `startupProbe` → `GET /health/live` — до 150 с на старт (включно з `prisma migrate deploy`);
+- `livenessProbe` → `GET /health/live` — процес живий; **не** перевіряє БД, щоб збій Postgres не перезапускав усі поди API;
+- `readinessProbe` → `GET /health` — под отримує трафік лише коли доступна PostgreSQL.
+
+**Оновлення без простою:** `RollingUpdate` з `maxSurge: 1`, `maxUnavailable: 0` + `preStop: sleep 5` + `app.enableShutdownHooks()` у NestJS.
+
+### 2. Параметри ConfigMap і Secret
+
+| Ключ | Джерело | Значення | Хто використовує |
+|---|---|---|---|
+| `NODE_ENV` | ConfigMap | `production` | API (`GET /version`) |
+| `PORT` | ConfigMap | `3000` | API — порт HTTP-сервера |
+| `SYNTHETIC_DELAY_MS` | ConfigMap | `0` | API — штучна затримка запитів, мс |
+| `REDIS_URL` | ConfigMap | `redis://redis:6379` | API — адреса кешу |
+| `POSTGRES_DB` | ConfigMap | `hotel_booking` | PostgreSQL |
+| `POSTGRES_USER` | ConfigMap | `postgres` | PostgreSQL |
+| `POSTGRES_PASSWORD` | Secret | навчальний пароль | PostgreSQL |
+| `DATABASE_URL` | Secret | `postgresql://postgres:***@postgres:5432/hotel_booking?schema=public` | API (Prisma) |
+
+API отримує всі ключі через `envFrom`, PostgreSQL — поштучно через `configMapKeyRef` / `secretKeyRef`. Значення в Secret навчальні й не використовуються в жодній реальній системі.
+
+### 3. Образи та версії
+
+Образ API публікується CI у GHCR: `ghcr.io/zhurykmaks11/booking-hotel-api`. Git-тег `vX.Y.Z` → образ з тегом `X.Y.Z`; версія вшивається в образ (`ARG APP_VERSION`) і повертається ендпоінтом `GET /version`. Тег `latest` у маніфестах не використовується.
+
+```bash
+git tag v1.0.0 && git push origin v1.0.0     # -> ghcr.io/zhurykmaks11/booking-hotel-api:1.0.0
+# ... зміни ...
+git tag v1.1.0 && git push origin v1.1.0     # -> ghcr.io/zhurykmaks11/booking-hotel-api:1.1.0
+```
+
+Пакет у GHCR має бути **public** (GitHub → Packages → booking-hotel-api → Package settings → Change visibility), інакше кластер не зможе завантажити образ. Альтернатива без registry — зібрати локально й завантажити в minikube:
+
+```bash
+docker build --build-arg APP_VERSION=1.0.0 -t ghcr.io/zhurykmaks11/booking-hotel-api:1.0.0 .
+minikube image load ghcr.io/zhurykmaks11/booking-hotel-api:1.0.0
+```
+
+### 4. Порядок розгортання
+
+```bash
+# 1. Кластер
+minikube start --driver=docker
+kubectl get nodes
+kubectl get pods -n kube-system
+minikube addons enable metrics-server
+minikube addons enable ingress
+
+# 2. Застосунок — однією командою з каталогу
+kubectl apply -f k8s/
+
+# 3. Стан
+kubectl get pods,deploy,rs,svc,ingress,pvc -n booking-hotel
+kubectl rollout status deployment/booking-api -n booking-hotel
+```
+
+**Доступ з хоста** (Windows, драйвер docker), один із варіантів:
+
+- **Ingress:** додати в `C:\Windows\System32\drivers\etc\hosts` рядок `127.0.0.1 booking-hotel.local`, в окремому терміналі (від адміністратора) запустити `minikube tunnel`, відкрити `http://booking-hotel.local/api/docs`.
+- **NodePort:** `minikube service booking-api -n booking-hotel --url` → відкрити виданий URL + `/api/docs`.
+
+**Перевірка, що ConfigMap і Secret потрапили в контейнер:**
+
+```bash
+kubectl exec -n booking-hotel deploy/booking-api -- printenv NODE_ENV PORT SYNTHETIC_DELAY_MS REDIS_URL DATABASE_URL
+kubectl get secret booking-secret -n booking-hotel -o jsonpath="{.data.POSTGRES_PASSWORD}"   # base64
+curl http://booking-hotel.local/version     # "environment":"production" — значення з ConfigMap
+curl http://booking-hotel.local/health      # "database":"CONNECTED" — DATABASE_URL із Secret працює
+```
+
+### 5. Керування життєвим циклом
+
+У PowerShell замість `curl` використовуйте `curl.exe`.
+
+```bash
+# Самовідновлення: видалити под — ReplicaSet створить новий
+kubectl get pods -n booking-hotel -l app.kubernetes.io/name=booking-api
+kubectl delete pod <ім'я-пода> -n booking-hotel
+kubectl get pods -n booking-hotel -w
+
+# Масштабування і розподіл трафіку (instanceId = ім'я пода)
+kubectl scale deployment/booking-api --replicas=4 -n booking-hotel
+kubectl top pods -n booking-hotel
+# PowerShell:
+1..12 | % { (curl.exe -s http://booking-hotel.local/version | ConvertFrom-Json).instanceId }
+
+# Безперервна перевірка доступності (окремий термінал, PowerShell) — тримати запущеною під час оновлення:
+while ($true) { curl.exe -s -o NUL -w "%{http_code} " http://booking-hotel.local/version; Start-Sleep -Milliseconds 200 }
+
+# Rolling update на 1.1.0
+kubectl set image deployment/booking-api api=ghcr.io/zhurykmaks11/booking-hotel-api:1.1.0 -n booking-hotel
+kubectl annotate deployment/booking-api kubernetes.io/change-cause="update to 1.1.0" -n booking-hotel --overwrite
+kubectl rollout status deployment/booking-api -n booking-hotel
+kubectl get rs -n booking-hotel
+
+# Історія та відкат
+kubectl rollout history deployment/booking-api -n booking-hotel
+kubectl rollout undo deployment/booking-api -n booking-hotel            # до попередньої ревізії
+kubectl rollout undo deployment/booking-api --to-revision=1 -n booking-hotel
+curl http://booking-hotel.local/version                                 # "version":"1.0.0"
+```
+
+### 6. Діагностика (ImagePullBackOff)
+
+```bash
+# Навмисна помилка: неіснуючий тег
+kubectl set image deployment/booking-api api=ghcr.io/zhurykmaks11/booking-hotel-api:9.9.9 -n booking-hotel
+kubectl get pods -n booking-hotel                       # новий под: ErrImagePull -> ImagePullBackOff
+# старі поди продовжують обслуговувати трафік (maxUnavailable: 0)
+
+# Пошук причини
+kubectl describe pod <под-з-помилкою> -n booking-hotel  # Events: Failed to pull image ... not found
+kubectl get events -n booking-hotel --sort-by=.lastTimestamp
+
+# Логи та вхід у робочий контейнер
+kubectl logs deploy/booking-api -n booking-hotel --tail=50
+kubectl exec -it deploy/booking-api -n booking-hotel -- sh
+#   / # printenv | grep -E "PORT|REDIS|NODE_ENV"; wget -qO- localhost:3000/health/live; exit
+
+# Виправлення
+kubectl rollout undo deployment/booking-api -n booking-hotel
+kubectl rollout status deployment/booking-api -n booking-hotel
+```
+
+### 7. Видалення
+
+```bash
+kubectl delete -f k8s/          # або: kubectl delete namespace booking-hotel
+minikube stop
+```

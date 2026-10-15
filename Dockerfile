@@ -19,6 +19,10 @@ FROM node:24-alpine
 
 WORKDIR /app
 
+# Версія образу (передається з CI: 1.0.0, 1.1.0, sha-...); віддається ендпоінтом GET /version
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
+
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
