@@ -1,0 +1,11 @@
+# Файли, які не потрапляють у пакет чарта (helm package)
+.DS_Store
+.git/
+.gitignore
+*.swp
+*.bak
+*.tmp
+*.orig
+.idea/
+.vscode/
+rendered/

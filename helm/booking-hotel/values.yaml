@@ -1,0 +1,96 @@
+# Значення за замовчуванням = середовище РОЗРОБКИ (dev).
+# Перевизначення: values-dev.yaml / values-prod.yaml (-f) та --set.
+
+# Перевизначення імені об'єктів (за замовчуванням ім'я будується з імені релізу)
+nameOverride: ""
+fullnameOverride: ""
+
+# --- API (NestJS) ---
+api:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/zhurykmaks11/booking-hotel-api
+    # Порожньо -> береться appVersion з Chart.yaml. Тег latest не використовується.
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    # NodePort: доступ всередині кластера і з хоста (minikube service ...)
+    type: NodePort
+    port: 80
+    # Порожньо -> Kubernetes видасть вільний порт (щоб чарт можна було встановити двічі)
+    nodePort: ""
+  containerPort: 3000
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 384Mi
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+# --- Конфігурація застосунку (ConfigMap) ---
+config:
+  nodeEnv: development
+  port: 3000
+  # Штучна затримка кожного запиту, мс (0 = вимкнено)
+  syntheticDelayMs: 0
+
+# --- Ingress (необов'язковий) ---
+ingress:
+  enabled: false
+  className: nginx
+  host: booking-hotel.local
+
+# --- PostgreSQL ---
+postgres:
+  image:
+    repository: postgres
+    tag: "16"
+  database: hotel_booking
+  user: postgres
+  persistence:
+    # false -> дані в emptyDir (зникають разом із подом)
+    enabled: true
+    size: 1Gi
+    # Порожньо -> StorageClass за замовчуванням (у minikube: standard)
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# --- Redis (розподілений кеш) ---
+redis:
+  # false -> API працює без кешу (graceful degradation)
+  enabled: true
+  image:
+    repository: redis
+    tag: 7-alpine
+  maxMemory: 128mb
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 192Mi
+
+# --- Секрети (Secret) ---
+# Навчальне значення для dev. Справжній пароль передається лише через --set, у файлах не зберігається.
+secrets:
+  postgresPassword: "dev-only-change-me"
+
+# --- Хук і тест релізу (завдання на вибір) ---
+hooks:
+  # Job перед кожним helm upgrade: перевіряє, що PostgreSQL доступна; інакше оновлення скасовується
+  preUpgradeDbCheck:
+    enabled: true
+tests:
+  enabled: true
+  image: busybox:1.36

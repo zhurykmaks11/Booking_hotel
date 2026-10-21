@@ -1,0 +1,26 @@
+# Середовище PROD: 3 репліки, більші ресурси, перевірена версія, Ingress увімкнено.
+# Пароль БД у файлі НЕ зберігається — передається при встановленні:
+#   --set secrets.postgresPassword=<пароль>
+api:
+  replicaCount: 3
+  image:
+    tag: "1.0.0"
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 768Mi
+
+config:
+  nodeEnv: production
+
+ingress:
+  enabled: true
+  className: nginx
+  host: booking-hotel.local
+
+postgres:
+  persistence:
+    size: 2Gi

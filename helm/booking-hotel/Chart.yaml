@@ -1,0 +1,16 @@
+apiVersion: v2
+name: booking-hotel
+description: Hotel Booking System — NestJS API + PostgreSQL + Redis (DevOps, Лаб. №4)
+type: application
+# Версія ЧАРТА (пакування: шаблони, values). Змінюється при будь-якій зміні в helm/booking-hotel/.
+version: 0.1.1
+# Версія ЗАСТОСУНКУ (тег образу API за замовчуванням). Змінюється з новим релізом коду (git-тег vX.Y.Z).
+appVersion: "1.1.0"
+keywords:
+  - nestjs
+  - booking
+  - postgres
+  - redis
+maintainers:
+  - name: zhurykmaks11
+    url: https://github.com/zhurykmaks11/Booking_hotel

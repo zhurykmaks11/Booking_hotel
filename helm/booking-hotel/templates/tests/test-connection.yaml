@@ -1,0 +1,30 @@
+{{- if .Values.tests.enabled }}
+# Тест релізу: helm test <release> -n <namespace> --logs
+# Перевіряє через Service, що API відповідає, а /health повертає status UP (БД підключена).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "booking-hotel.fullname" . }}-test-connection
+  labels:
+    {{- include "booking-hotel.labels" (dict "ctx" $ "component" "test") | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  restartPolicy: Never
+  containers:
+    - name: health
+      image: {{ .Values.tests.image }}
+      command:
+        - sh
+        - -c
+        - |
+          URL="http://{{ include "booking-hotel.componentName" (dict "ctx" $ "component" "api") }}:{{ .Values.api.service.port }}"
+          echo "GET $URL/health"
+          BODY=$(wget -qO- "$URL/health") || { echo "FAIL: API недоступний"; exit 1; }
+          echo "$BODY"
+          echo "$BODY" | grep -q '"status":"UP"' || { echo "FAIL: status != UP"; exit 1; }
+          echo "GET $URL/version"
+          wget -qO- "$URL/version"; echo
+          echo "OK: реліз працює"
+{{- end }}

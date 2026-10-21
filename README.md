@@ -27,6 +27,7 @@
   - [6. Інструкція до захисту та теоретичні питання](#6-інструкція-до-захисту-та-теоретичні-питання)
 - [Розподілене кешування (Лаб. №4)](#розподілене-кешування-лаб-4)
 - [Розгортання в Kubernetes (DevOps, Лаб. №3)](#розгортання-в-kubernetes-devops-лаб-3)
+- [Helm-чарт (DevOps, Лаб. №4)](#helm-чарт-devops-лаб-4)
 
 ---
 
@@ -800,4 +801,223 @@ kubectl rollout status deployment/booking-api -n booking-hotel
 ```bash
 kubectl delete -f k8s/          # або: kubectl delete namespace booking-hotel
 minikube stop
+```
+
+---
+
+## Helm-чарт (DevOps, Лаб. №4)
+
+Маніфести з [`k8s/`](k8s/) перенесено у власний Helm-чарт [`helm/booking-hotel/`](helm/booking-hotel/). Чарт створює той самий набір об'єктів, що й лабораторна №3, але всі імена, теги, репліки, ресурси й параметри задаються через values. Namespace створює сам Helm (`--create-namespace`), окремого шаблону для нього немає.
+
+### 1. Структура чарта
+
+```
+helm/booking-hotel/
+├── Chart.yaml              # метадані: name, description, version, appVersion
+├── values.yaml             # значення за замовчуванням (= середовище dev)
+├── values-dev.yaml         # середовище розробки
+├── values-prod.yaml        # продакшн-середовище
+├── .helmignore
+└── templates/
+    ├── _helpers.tpl        # іменовані шаблони: fullname, componentName, labels, selectorLabels, apiImage, databaseUrl
+    ├── NOTES.txt           # підказка після встановлення: як відкрити застосунок
+    ├── configmap.yaml
+    ├── secret.yaml         # значення з .Values.secrets, у шаблоні паролів немає
+    ├── postgres-pvc.yaml   # лише якщо postgres.persistence.enabled
+    ├── postgres-deployment.yaml
+    ├── postgres-service.yaml
+    ├── redis-deployment.yaml   # лише якщо redis.enabled
+    ├── redis-service.yaml      # лише якщо redis.enabled
+    ├── api-deployment.yaml
+    ├── api-service.yaml
+    ├── api-ingress.yaml        # лише якщо ingress.enabled
+    ├── hooks/pre-upgrade-db-check.yaml   # хук pre-upgrade
+    └── tests/test-connection.yaml        # тест релізу (helm test)
+```
+
+**Відповідність маніфестам лаб. №3** (для релізу `booking-hotel`):
+
+| Лаб. №3 (`k8s/`) | Шаблон чарта | Ім'я об'єкта |
+|---|---|---|
+| `00-namespace.yaml` | — (`helm install --create-namespace`) | `booking-hotel` |
+| `01-configmap.yaml` | `configmap.yaml` | `booking-hotel-config` |
+| `02-secret.yaml` | `secret.yaml` | `booking-hotel-secret` |
+| `10-postgres-pvc.yaml` | `postgres-pvc.yaml` | `booking-hotel-postgres-data` |
+| `11-postgres-deployment.yaml` | `postgres-deployment.yaml` | `booking-hotel-postgres` |
+| `12-postgres-service.yaml` | `postgres-service.yaml` | `booking-hotel-postgres` |
+| `20-redis-deployment.yaml` | `redis-deployment.yaml` | `booking-hotel-redis` |
+| `21-redis-service.yaml` | `redis-service.yaml` | `booking-hotel-redis` |
+| `30-api-deployment.yaml` | `api-deployment.yaml` | `booking-hotel-api` |
+| `31-api-service.yaml` | `api-service.yaml` | `booking-hotel-api` |
+| `32-api-ingress.yaml` | `api-ingress.yaml` | `booking-hotel-api` |
+
+**Імена об'єктів** будуються з імені релізу (`booking-hotel.fullname` у `_helpers.tpl`):
+- реліз `booking-hotel` → `booking-hotel-api`;
+- реліз `test` → `test-booking-hotel-api`.
+
+Тож чарт можна встановити двічі в один кластер без конфліктів. NodePort за замовчуванням не фіксується, Kubernetes видає вільний порт.
+
+**Мітки** беруться з одного місця (`booking-hotel.labels` / `booking-hotel.selectorLabels` / `booking-hotel.stablePodLabels`) і підключаються в усіх шаблонах через `include`. Мітка `app.kubernetes.io/version` дорівнює тегу образу API, який реально розгорнуто. Поди Postgres і Redis мають лише стабільні мітки, тому оновлення API їх не перезапускає.
+
+### 2. `version` і `appVersion`
+
+| Поле | Значення | Що означає для проєкту | Коли змінювати |
+|---|---|---|---|
+| `version` | `0.1.1` | версія **чарта**, тобто пакування: шаблони, values, хуки | при будь-якій зміні в `helm/booking-hotel/` (новий параметр, шаблон, виправлення) |
+| `appVersion` | `1.1.0` | версія **застосунку**, тобто тег образу API за замовчуванням | з новим релізом коду (git-тег `vX.Y.Z` → образ `X.Y.Z`) |
+
+Приклад з проєкту: `0.1.0` → `0.1.1`. Поди Postgres і Redis отримали лише стабільні мітки, без `version` і `helm.sh/chart`. Раніше зміна тега образу API змінювала їхній шаблон подів, і БД із кешем перезапускалися без потреби. Код застосунку при цьому не змінювався, тож `appVersion` лишився `1.1.0`.
+
+Вони незалежні:
+- чарт `0.2.0` може розгортати той самий застосунок `1.1.0`, якщо змінилися лише шаблони;
+- новий образ `1.2.0` не вимагає змінювати чарт, якщо достатньо `--set api.image.tag=1.2.0`.
+
+Якщо `api.image.tag` порожній, використовується `appVersion`.
+
+### 3. Параметри values
+
+| Параметр | За замовчуванням (dev) | prod | Опис |
+|---|---|---|---|
+| `nameOverride` / `fullnameOverride` | `""` | — | перевизначення імені об'єктів |
+| `api.replicaCount` | `1` | `3` | кількість реплік API |
+| `api.image.repository` | `ghcr.io/zhurykmaks11/booking-hotel-api` | — | репозиторій образу |
+| `api.image.tag` | `""` (→ `appVersion`) / dev: `1.1.0` | `1.0.0` | тег образу (не `latest`) |
+| `api.image.pullPolicy` | `IfNotPresent` | — | політика завантаження образу |
+| `api.service.type` | `NodePort` | — | тип Service |
+| `api.service.port` | `80` | — | порт Service |
+| `api.service.nodePort` | `""` (авто) | — | фіксований NodePort (необов'язково) |
+| `api.containerPort` | `3000` | — | порт контейнера |
+| `api.resources` | req `50m/128Mi`, lim `300m/384Mi` | req `200m/256Mi`, lim `1/768Mi` | ресурси API |
+| `api.rollingUpdate.maxSurge` / `maxUnavailable` | `1` / `0` | — | стратегія rolling update |
+| `config.nodeEnv` | `development` | `production` | `NODE_ENV` (ConfigMap) |
+| `config.port` | `3000` | — | `PORT` (ConfigMap) |
+| `config.syntheticDelayMs` | `0` | — | `SYNTHETIC_DELAY_MS` (ConfigMap) |
+| `ingress.enabled` | `false` | `true` | створювати Ingress |
+| `ingress.className` | `nginx` | — | IngressClass |
+| `ingress.host` | `booking-hotel.local` | — | хост Ingress |
+| `postgres.image.repository` / `tag` | `postgres` / `16` | — | образ БД |
+| `postgres.database` / `user` | `hotel_booking` / `postgres` | — | БД і користувач (ConfigMap) |
+| `postgres.persistence.enabled` | `true` | — | PVC (`false` → `emptyDir`) |
+| `postgres.persistence.size` | `1Gi` | `2Gi` | розмір тому |
+| `postgres.persistence.storageClass` | `""` | — | StorageClass (порожньо = за замовчуванням) |
+| `postgres.resources` | req `100m/256Mi`, lim `500m/512Mi` | — | ресурси БД |
+| `redis.enabled` | `true` | — | Redis-кеш (`false` → API без кешу) |
+| `redis.image.repository` / `tag` | `redis` / `7-alpine` | — | образ Redis |
+| `redis.maxMemory` | `128mb` | — | ліміт пам'яті Redis |
+| `redis.resources` | req `50m/64Mi`, lim `250m/192Mi` | — | ресурси Redis |
+| `secrets.postgresPassword` | `dev-only-change-me` (навчальний) | **не зберігається**, `--set` | пароль БД → `POSTGRES_PASSWORD`, `DATABASE_URL` у Secret |
+| `hooks.preUpgradeDbCheck.enabled` | `true` | — | хук pre-upgrade (перевірка БД) |
+| `tests.enabled` / `tests.image` | `true` / `busybox:1.36` | — | тест релізу для `helm test` |
+
+`REDIS_URL` і `DATABASE_URL` не задаються вручну: шаблон будує їх з імені релізу, наприклад `redis://booking-hotel-redis:6379`.
+
+### 4. Пріоритет значень
+
+Від найнижчого до найвищого. Кожне наступне джерело перекриває попереднє:
+
+1. `values.yaml` у чарті (значення за замовчуванням);
+2. файли `-f` / `--values`, у порядку перелічення (правіший перемагає);
+3. `--set`, `--set-string`, `--set-file` (найвищий пріоритет).
+
+Приклад: `-f values-prod.yaml --set api.image.tag=1.1.0` дає 3 репліки з prod-файлу, але тег `1.1.0` з `--set`.
+
+Об'єднання глибоке: з файлу береться лише те, що в ньому задано, а решта ключів лишається з `values.yaml`.
+
+При `helm upgrade` без `--reuse-values` значення збираються заново з чарта, `-f` і `--set`. Тобто значення, передані через `--set` у попередній ревізії, не зберігаються.
+
+### 5. Встановлення
+
+```powershell
+# прибрати об'єкти лаб. №3 (той самий namespace / імена)
+kubectl delete -f k8s/
+
+# dev (значення за замовчуванням + values-dev.yaml)
+helm install booking-hotel helm/booking-hotel -n booking-hotel --create-namespace -f helm/booking-hotel/values-dev.yaml
+
+# prod (пароль лише з командного рядка)
+helm install booking-hotel helm/booking-hotel -n booking-hotel --create-namespace -f helm/booking-hotel/values-prod.yaml --set secrets.postgresPassword=<пароль>
+```
+
+Пароль PostgreSQL застосовується лише при першій ініціалізації тому. Якщо змінити `secrets.postgresPassword` на вже наявних даних, API не зможе підключитися до БД. Тому під час `upgrade` треба передавати той самий пароль, що й при встановленні.
+
+### 6. Перевірка без встановлення
+
+```powershell
+helm lint helm/booking-hotel
+helm lint helm/booking-hotel -f helm/booking-hotel/values-prod.yaml
+
+# згенеровані маніфести
+helm template booking-hotel helm/booking-hotel -n booking-hotel -f helm/booking-hotel/values-dev.yaml  > rendered-dev.yaml
+helm template booking-hotel helm/booking-hotel -n booking-hotel -f helm/booking-hotel/values-prod.yaml > rendered-prod.yaml
+
+# різниця між середовищами
+git diff --no-index rendered-dev.yaml rendered-prod.yaml
+
+# перевірка сервером Kubernetes без створення об'єктів
+helm install booking-hotel helm/booking-hotel -n booking-hotel --create-namespace --dry-run=server
+```
+
+Між dev і prod відрізняються:
+- `replicas` (1 → 3);
+- образ (`1.1.0` → `1.0.0`);
+- `resources`;
+- `NODE_ENV`;
+- розмір PVC;
+- у prod додається Ingress;
+- `checksum/config` (бо змінився ConfigMap).
+
+### 7. Реліз: перегляд і стан
+
+```powershell
+helm list -n booking-hotel
+helm status booking-hotel -n booking-hotel
+helm get values booking-hotel -n booking-hotel          # values, передані користувачем
+helm get values booking-hotel -n booking-hotel --all    # усі обчислені values
+helm get manifest booking-hotel -n booking-hotel        # що реально застосовано
+```
+
+**Де Helm зберігає стан.** Кожна ревізія — окремий Secret типу `helm.sh/release.v1` у namespace релізу:
+
+```powershell
+kubectl get secrets -n booking-hotel -l owner=helm
+# sh.helm.release.v1.booking-hotel.v1, ...v2, ...
+```
+
+Усередині Secret лежить запакований (gzip + base64) опис релізу: чарт, values і маніфести. На ньому працюють `helm history` і `helm rollback`.
+
+### 8. Життєвий цикл релізу
+
+```powershell
+# оновлення тега через --set
+helm upgrade booking-hotel helm/booking-hotel -n booking-hotel -f helm/booking-hotel/values-dev.yaml --set api.image.tag=1.0.0
+
+# оновлення файлом іншого середовища
+helm upgrade booking-hotel helm/booking-hotel -n booking-hotel -f helm/booking-hotel/values-prod.yaml --set secrets.postgresPassword=dev-only-change-me
+
+# історія ревізій
+helm history booking-hotel -n booking-hotel
+
+# відкат на ревізію 1 (з'явиться нова ревізія "Rollback to 1")
+helm rollback booking-hotel 1 -n booking-hotel
+helm history booking-hotel -n booking-hotel
+
+# видалення однією командою
+helm uninstall booking-hotel -n booking-hotel
+kubectl get all,cm,secret,pvc,ingress,jobs -n booking-hotel
+```
+
+Після `uninstall` у namespace лишається лише системний ConfigMap `kube-root-ca.crt`, який Kubernetes створює в кожному namespace. Secret-и Helm (`sh.helm.release.v1.*`) теж видаляються. Потім можна прибрати й сам namespace: `kubectl delete namespace booking-hotel`.
+
+Хук-об'єкти не належать релізу, тому `uninstall` їх не видаляє. Под тесту `booking-hotel-test-connection` лишається після `helm test`, щоб `--logs` міг прочитати його логи. Якщо тест запускався, перед перевіркою порожнього namespace видаліть под окремо:
+`kubectl delete pod -n booking-hotel -l app.kubernetes.io/component=test`. Job хука pre-upgrade видаляється автоматично після успіху.
+
+### 9. Хук і тест релізу (завдання на вибір)
+
+- **Хук `pre-upgrade`** (`templates/hooks/pre-upgrade-db-check.yaml`). Перед кожним `helm upgrade` запускається Job з `pg_isready`. Якщо PostgreSQL недоступна, Job падає, і Helm скасовує оновлення, тож робочий реліз лишається недоторканим. Після успіху Job видаляється (`hook-delete-policy: before-hook-creation,hook-succeeded`).
+- **Тест** (`templates/tests/test-connection.yaml`). Под на busybox звертається до API через Service і перевіряє, що `/health` повертає `"status":"UP"`.
+
+```powershell
+helm upgrade booking-hotel helm/booking-hotel -n booking-hotel -f helm/booking-hotel/values-dev.yaml
+kubectl get jobs -n booking-hotel -w          # під час upgrade видно ...-pre-upgrade-db-check
+helm test booking-hotel -n booking-hotel --logs
 ```

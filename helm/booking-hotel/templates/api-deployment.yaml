@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "booking-hotel.componentName" (dict "ctx" $ "component" "api") }}
+  labels:
+    {{- include "booking-hotel.labels" (dict "ctx" $ "component" "api") | nindent 4 }}
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      {{- include "booking-hotel.selectorLabels" (dict "ctx" $ "component" "api") | nindent 6 }}
+  # Оновлення без простою: новий под має стати Ready, перш ніж буде зупинено старий
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: {{ .Values.api.rollingUpdate.maxSurge }}
+      maxUnavailable: {{ .Values.api.rollingUpdate.maxUnavailable }}
+  template:
+    metadata:
+      labels:
+        {{- include "booking-hotel.labels" (dict "ctx" $ "component" "api") | nindent 8 }}
+      annotations:
+        # Зміна ConfigMap/Secret -> нова контрольна сума -> автоматичний rolling restart подів
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: api
+          image: {{ include "booking-hotel.apiImage" . | quote }}
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.api.containerPort }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "booking-hotel.fullname" . }}-config
+            - secretRef:
+                name: {{ include "booking-hotel.fullname" . }}-secret
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          # Старт включає prisma migrate deploy — до 150 с
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
