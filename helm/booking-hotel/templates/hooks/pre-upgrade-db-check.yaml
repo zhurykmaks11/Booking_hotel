@@ -1,0 +1,32 @@
+{{- if .Values.hooks.preUpgradeDbCheck.enabled }}
+# Хук pre-upgrade: перед кожним helm upgrade перевіряє, що PostgreSQL приймає з'єднання.
+# Якщо Job не завершився успішно — Helm скасовує оновлення, і робочий реліз лишається недоторканим.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "booking-hotel.fullname" . }}-pre-upgrade-db-check
+  labels:
+    {{- include "booking-hotel.labels" (dict "ctx" $ "component" "hook") | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        {{- include "booking-hotel.selectorLabels" (dict "ctx" $ "component" "hook") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: db-check
+          image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
+          command:
+            - sh
+            - -c
+            - |
+              echo "pre-upgrade: checking PostgreSQL {{ include "booking-hotel.componentName" (dict "ctx" $ "component" "postgres") }}:5432 ..."
+              pg_isready -h {{ include "booking-hotel.componentName" (dict "ctx" $ "component" "postgres") }} -p 5432 -U {{ .Values.postgres.user }} -t 10
+{{- end }}

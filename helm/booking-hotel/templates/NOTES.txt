@@ -1,0 +1,21 @@
+Реліз {{ .Release.Name }} (чарт {{ include "booking-hotel.chart" . }}, застосунок {{ include "booking-hotel.apiImage" . }}) встановлено в namespace {{ .Release.Namespace }}.
+
+1. Дочекайтеся готовності подів:
+   kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} -w
+
+2. Відкрийте застосунок:
+{{- if .Values.ingress.enabled }}
+   - додайте у hosts-файл:   127.0.0.1 {{ .Values.ingress.host }}
+   - в окремому терміналі:  minikube tunnel
+   - відкрийте:             http://{{ .Values.ingress.host }}/api/docs
+{{- else if eq .Values.api.service.type "NodePort" }}
+   minikube service {{ include "booking-hotel.componentName" (dict "ctx" $ "component" "api") }} -n {{ .Release.Namespace }} --url
+   і відкрийте <виданий URL>/api/docs
+{{- end }}
+   Альтернатива: kubectl port-forward svc/{{ include "booking-hotel.componentName" (dict "ctx" $ "component" "api") }} 8080:{{ .Values.api.service.port }} -n {{ .Release.Namespace }}
+                 -> http://localhost:8080/api/docs
+
+3. Перевірка релізу:
+   helm test {{ .Release.Name }} -n {{ .Release.Namespace }} --logs
+
+Репліки API: {{ .Values.api.replicaCount }}, Ingress: {{ if .Values.ingress.enabled }}увімкнено{{ else }}вимкнено{{ end }}, NODE_ENV: {{ .Values.config.nodeEnv }}

@@ -63,3 +63,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # Local test/runtime storage files
 jest-storage*
 scratch_storage
+
+# Helm (Лаб. №4): результати helm template / helm package
+rendered-*.yaml
+*.tgz
