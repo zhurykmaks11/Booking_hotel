@@ -43,10 +43,6 @@ export const CacheKeys = {
     },
 };
 
-/**
- * Політика TTL (секунди). До базового TTL додається випадкова добавка (jitter),
- * щоб ключі, створені одночасно, не зникали одночасно (захист від Cache Avalanche).
- */
 export const CacheTtl = {
     hotel: { base: 600, jitter: 60 },
     roomsSearch: { base: 60, jitter: 10 },

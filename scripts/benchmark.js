@@ -1,15 +1,3 @@
-/**
- * Інструмент для тестування балансування навантаження, перевірки алгоритмів та Fault Tolerance
- * Лабораторна робота №3
- *
- * Використання:
- *   node scripts/benchmark.js distribution [-n 30] [-u http://localhost]
- *   node scripts/benchmark.js failover [-d 20] [-u http://localhost]
- *   node scripts/benchmark.js asymmetric [-n 30] [-c 6] [-u http://localhost]
- *   node scripts/benchmark.js switch <roundrobin|leastconn|iphash|weighted>
- *   node scripts/benchmark.js cache [-n 30] [-city Kyiv] [-u http://localhost]   (Лаб. №4: Cold vs Hot)
- */
-
 const http = require('http');
 const fs = require('fs');
 const path = require('path');

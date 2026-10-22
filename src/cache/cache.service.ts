@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Redis } from 'ioredis';
 
-/** Джерело даних для відповіді — повертається клієнту в заголовку X-Cache. */
+
 export type CacheStatus = 'HIT' | 'MISS' | 'BYPASS';
 
 export interface CacheResult<T> {
@@ -18,20 +18,6 @@ export interface CacheStats {
     invalidations: number;
 }
 
-/**
- * Розподілений кеш на Redis (Лаб. №4).
- *
- * Один Redis спільний для всіх інстансів API, тому інвалідація, зроблена на api-1,
- * одразу діє для api-2 та api-3.
- *
- * Відмовостійкість (п. 2.6.3): будь-яка помилка Redis перетворюється на звичайне
- * звернення до БД (BYPASS) — клієнт ніколи не отримує 500 через кеш.
- *  - enableOfflineQueue: false — поки Redis недоступний, команди одразу падають,
- *    а не накопичуються в черзі;
- *  - commandTimeout / connectTimeout — короткі тайм-аути, щоб «зависання» Redis
- *    не додавало затримку до відповіді;
- *  - retryStrategy — клієнт сам перепідключається, коли Redis повертається.
- */
 @Injectable()
 export class CacheService implements OnModuleInit, OnModuleDestroy {
     private readonly logger = new Logger('Cache');
@@ -92,13 +78,7 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
         });
     }
 
-    /**
-     * Паттерн Cache-Aside (п. 2.3):
-     *  1. шукаємо ключ у Redis;
-     *  2. HIT  — повертаємо збережений об'єкт, БД не чіпаємо;
-     *  3. MISS — читаємо з БД (loader), кладемо в Redis з TTL і повертаємо.
-     * Якщо Redis недоступний — BYPASS: просто читаємо з БД.
-     */
+
     async getOrSet<T>(
         key: string,
         ttl: { base: number; jitter: number },
