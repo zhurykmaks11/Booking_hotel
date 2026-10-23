@@ -22,7 +22,13 @@
     "benchmark:failover": "node scripts/benchmark.js failover",
     "benchmark:asymmetric": "node scripts/benchmark.js asymmetric",
     "lb:switch": "node scripts/benchmark.js switch",
-    "benchmark:cache": "node scripts/benchmark.js cache"
+    "benchmark:cache": "node scripts/benchmark.js cache",
+    "load:all": "powershell -ExecutionPolicy Bypass -File load-tests/run-load-tests.ps1 -Experiment all -ApplyLimits",
+    "load:baseline": "powershell -ExecutionPolicy Bypass -File load-tests/run-load-tests.ps1 -Experiment baseline",
+    "load:scaling": "powershell -ExecutionPolicy Bypass -File load-tests/run-load-tests.ps1 -Experiment scaling",
+    "load:caching": "powershell -ExecutionPolicy Bypass -File load-tests/run-load-tests.ps1 -Experiment caching",
+    "load:demo": "powershell -ExecutionPolicy Bypass -File load-tests/run-load-tests.ps1 -Experiment single -Scenario a -Hold 20",
+    "load:report": "node load-tests/report.js"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",

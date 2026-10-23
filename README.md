@@ -28,6 +28,7 @@
 - [Розподілене кешування (Лаб. №4)](#розподілене-кешування-лаб-4)
 - [Розгортання в Kubernetes (DevOps, Лаб. №3)](#розгортання-в-kubernetes-devops-лаб-3)
 - [Helm-чарт (DevOps, Лаб. №4)](#helm-чарт-devops-лаб-4)
+- [Навантажувальне тестування (Лаб. №5)](#навантажувальне-тестування-лаб-5)
 
 ---
 
@@ -1021,3 +1022,29 @@ helm upgrade booking-hotel helm/booking-hotel -n booking-hotel -f helm/booking-h
 kubectl get jobs -n booking-hotel -w          # під час upgrade видно ...-pre-upgrade-db-check
 helm test booking-hotel -n booking-hotel --logs
 ```
+
+---
+
+## Навантажувальне тестування (Лаб. №5)
+
+Повний звіт: [`load-tests/LAB5.md`](load-tests/LAB5.md) — завдання, що зроблено, методика, результати, картка Performance Baseline, теорія. Зведені виміри: [`load-tests/results/SUMMARY.md`](load-tests/results/SUMMARY.md).
+
+**Інструмент:** k6 (скрипти в [`load-tests/`](load-tests/)), запуск у Docker-контейнері `grafana/k6` з обмеженням CPU — генератор навантаження ізольований від системи, що тестується.
+
+| Сценарій | Скрипт | Навантаження |
+|---|---|---|
+| A — Read-Intensive | `scenario-a-read.js` | `GET /rooms/search`, `GET /hotels/:id` (кеш Redis, читання БД) |
+| B — Write-Intensive | `scenario-b-write.js` | `POST /bookings` (Serializable-транзакції PostgreSQL) |
+| C — Complex Workflow | `scenario-c-workflow.js` | пошук → готель → гість → бронювання → скасування |
+
+**Профіль:** warm-up 30 с × 5 VUs, далі ступені 10 → 25 → 50 → 100 → 200 VUs (перехід 10 с + утримання 60 с); метрики беруться лише з фаз утримання.
+
+**Експерименти:** baseline для A/B/C на 3 інстансах; 1 інстанс vs 3 інстанси (Scalability Efficiency Factor); Redis вимкнено vs теплий кеш (затримки і транзакції PostgreSQL на запит).
+
+```powershell
+npm run load:all       # усі експерименти з фіксованими лімітами CPU/RAM (~50 хв)
+npm run load:demo      # швидкий показ (~3 хв), живий дашборд: http://localhost:5665
+npm run load:report    # перебудувати load-tests/results/SUMMARY.md і графіки
+```
+
+Ліміти ресурсів і пул з'єднань для відтворюваних замірів: [`load-tests/docker-compose.loadtest.yml`](load-tests/docker-compose.loadtest.yml). Конфіг Nginx для одного інстансу: [`nginx/nginx.single.conf`](nginx/nginx.single.conf).

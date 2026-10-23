@@ -1,0 +1,24 @@
+# Конфігурація середовища для навантажувального тестування (Лаб. №5, п. 2.2).
+# Фіксовані ліміти CPU/RAM і явний розмір пулу з'єднань Prisma роблять заміри відтворюваними.
+# Підключається поверх основного файлу:
+#   docker compose -f docker-compose.yml -f load-tests/docker-compose.loadtest.yml up -d
+x-api-limits: &api-limits
+  cpus: "1.0"
+  mem_limit: 512m
+  environment:
+    # Пул Prisma: 10 з'єднань на інстанс, очікування вільного з'єднання не довше 10 с
+    DATABASE_URL: "postgresql://postgres:postgres@db:5432/hotel_booking?schema=public&connection_limit=10&pool_timeout=10"
+
+services:
+  db:
+    cpus: "2.0"
+    mem_limit: 1g
+  redis:
+    cpus: "0.5"
+    mem_limit: 256m
+  api-1: *api-limits
+  api-2: *api-limits
+  api-3: *api-limits
+  nginx:
+    cpus: "1.0"
+    mem_limit: 256m
