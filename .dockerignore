@@ -7,3 +7,4 @@ dist
 coverage
 jest-storage*
 scratch_storage
+load-tests
