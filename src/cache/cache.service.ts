@@ -79,13 +79,19 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
     }
 
 
+    /**
+     * loader заповнює кеш (MISS), bypassLoader читає, коли Redis недоступний (BYPASS).
+     * Лаб. №6: кеш заповнюється з Primary — інакше відстала Replica «отруїла» б кеш застарілими
+     * даними на весь TTL; без кешу достатньо eventual-читання з Replica.
+     */
     async getOrSet<T>(
         key: string,
         ttl: { base: number; jitter: number },
         loader: () => Promise<T>,
+        bypassLoader: () => Promise<T> = loader,
     ): Promise<CacheResult<T>> {
         if (!this.client || !this.isReady) {
-            return this.bypass(key, loader);
+            return this.bypass(key, bypassLoader);
         }
 
         let cached: string | null;
@@ -93,7 +99,7 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
             cached = await this.client.get(key);
         } catch (err) {
             this.logRedisError('GET', err as Error);
-            return this.bypass(key, loader);
+            return this.bypass(key, bypassLoader);
         }
 
         if (cached !== null) {
@@ -152,6 +158,27 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
             this.logger.log(`INVALIDATE ${key} → v${version}`);
         } catch (err) {
             this.logRedisError('INCR', err as Error);
+        }
+    }
+
+    /** Короткоживучий прапорець з TTL у мілісекундах (Sticky Routing, Лаб. №6). */
+    async setFlag(key: string, ttlMs: number): Promise<void> {
+        if (!this.client || !this.isReady) return;
+        try {
+            await this.client.set(key, '1', 'PX', ttlMs);
+        } catch (err) {
+            this.logRedisError('SET', err as Error);
+        }
+    }
+
+    /** true / false — чи встановлено прапорець; null — Redis недоступний (стан невідомий). */
+    async hasFlag(key: string): Promise<boolean | null> {
+        if (!this.client || !this.isReady) return null;
+        try {
+            return (await this.client.exists(key)) === 1;
+        } catch (err) {
+            this.logRedisError('EXISTS', err as Error);
+            return null;
         }
     }
 

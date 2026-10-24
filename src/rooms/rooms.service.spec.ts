@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { RoomsService } from './rooms.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { DbRouter } from '../database/db-router.service';
 import { CacheService } from '../cache/cache.service';
 
 describe('RoomsService', () => {
@@ -8,7 +8,7 @@ describe('RoomsService', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [RoomsService, { provide: PrismaService, useValue: {} }, { provide: CacheService, useValue: {} }],
+      providers: [RoomsService, { provide: DbRouter, useValue: {} }, { provide: CacheService, useValue: {} }],
     }).compile();
 
     service = module.get<RoomsService>(RoomsService);

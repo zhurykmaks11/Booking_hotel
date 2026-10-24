@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BookingsService } from './bookings.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { DbRouter } from '../database/db-router.service';
 import { CacheService } from '../cache/cache.service';
 import { CacheKeys } from '../cache/cache-keys';
 import {
@@ -88,13 +88,20 @@ describe('BookingsService', () => {
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 BookingsService,
-                { provide: PrismaService, useValue: prismaMock },
+                // Маршрутизатор у юніт-тестах просто віддає мок Prisma (вузол тут не важливий)
+                {
+                    provide: DbRouter,
+                    useValue: {
+                        read: (query: (db: unknown) => unknown) => query(prismaMock),
+                        write: (mutation: (db: unknown) => unknown) => mutation(prismaMock),
+                    },
+                },
                 { provide: CacheService, useValue: cacheMock },
             ],
         }).compile();
 
         service = module.get<BookingsService>(BookingsService);
-        prisma = module.get(PrismaService);
+        prisma = prismaMock;
         cache = module.get(CacheService);
     });
 

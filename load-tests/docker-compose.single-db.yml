@@ -1,0 +1,11 @@
+# Single Primary Topology (Лаб. №6, п. 2.6): API не знає про Replica, читання і запис — на Primary.
+# Replica продовжує працювати (інфраструктура та сама), змінюється лише маршрутизація.
+#   docker compose -f docker-compose.yml -f load-tests/docker-compose.single-db.yml up -d api-1 api-2 api-3
+x-single-db: &single-db
+  environment:
+    DATABASE_REPLICA_URL: ""
+
+services:
+  api-1: *single-db
+  api-2: *single-db
+  api-3: *single-db

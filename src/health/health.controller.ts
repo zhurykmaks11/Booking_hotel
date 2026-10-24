@@ -1,7 +1,7 @@
 import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { PrismaService } from '../prisma/prisma.service';
+import { DbRouter } from '../database/db-router.service';
 import { CacheService } from '../cache/cache.service';
 import * as os from 'os';
 
@@ -12,7 +12,7 @@ export class HealthController {
     private readonly startTime = Date.now();
 
     constructor(
-        private readonly prisma: PrismaService,
+        private readonly db: DbRouter,
         private readonly cache: CacheService,
     ) {}
 
@@ -25,31 +25,31 @@ export class HealthController {
         return { status: 'UP', instanceId: this.instanceId };
     }
 
-    // Readiness-проба Kubernetes: под отримує трафік лише коли доступна БД.
+    // Readiness-проба Kubernetes: под отримує трафік, поки доступний хоча б один вузол БД.
+    // Лаб. №6: без Primary сервіс працює в Read-Only Mode (DEGRADED), без Replica — читає з Primary.
     @Get()
-    @ApiOperation({ summary: 'Перевірка готовності сервісу та доступності бази даних' })
-    @ApiResponse({ status: 200, description: 'Сервіс працює коректно' })
-    @ApiResponse({ status: 503, description: 'Сервіс недоступний (помилка БД)' })
+    @ApiOperation({ summary: 'Перевірка готовності сервісу та доступності вузлів БД (Primary / Replica)' })
+    @ApiResponse({ status: 200, description: 'UP — усе працює; DEGRADED — недоступна Replica (Primary Fallback) або Primary (Read-Only Mode)' })
+    @ApiResponse({ status: 503, description: 'Сервіс недоступний (немає жодного вузла БД)' })
     async checkHealth(@Res() res: Response) {
         const start = Date.now();
-        let dbStatus = 'CONNECTED';
-        let isHealthy = true;
-
-        try {
-            // Перевіряємо реальне з'єднання з PostgreSQL через Prisma
-            await this.prisma.$queryRaw`SELECT 1`;
-        } catch {
-            dbStatus = 'DISCONNECTED';
-            isHealthy = false;
-        }
+        // Активна перевірка Primary і Replica (оновлює стан маршрутизатора)
+        const db = await this.db.checkHealth();
 
         const dbResponseMs = Date.now() - start;
         const uptimeSec = Math.floor((Date.now() - this.startTime) / 1000);
+        const primaryUp = db.nodes.primary.healthy;
+        const replicaDown = db.topology === 'primary+replica' && !db.nodes.replica['healthy'];
+        const isHealthy = db.mode !== 'unavailable';
 
         const payload = {
-            status: isHealthy ? 'UP' : 'DOWN',
+            status: !isHealthy ? 'DOWN' : !primaryUp || replicaDown ? 'DEGRADED' : 'UP',
             instanceId: this.instanceId,
-            database: dbStatus,
+            database: primaryUp ? 'CONNECTED' : 'DISCONNECTED',
+            dbMode: db.mode,
+            dbTopology: db.topology,
+            readsFrom: db.readsFrom,
+            replica: db.topology === 'primary+replica' ? (replicaDown ? 'DISCONNECTED' : 'CONNECTED') : 'DISABLED',
             dbResponseMs: `${dbResponseMs}ms`,
             uptime: `${uptimeSec}s`,
             timestamp: new Date().toISOString(),
