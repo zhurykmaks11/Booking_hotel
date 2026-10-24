@@ -4,6 +4,9 @@
 - **Лабораторна робота №1** — System Design.  
 - **Лабораторна робота №2** — Stateless Architecture.  
 - **Лабораторна робота №3** — Horizontal Scaling & Load Balancing.
+- **Лабораторна робота №4** — Distributed Caching.
+- **Лабораторна робота №5** — Load & Performance Baseline.
+- **Лабораторна робота №6** — Database Replication & Read/Write Separation.
 
 ---
 
@@ -29,6 +32,7 @@
 - [Розгортання в Kubernetes (DevOps, Лаб. №3)](#розгортання-в-kubernetes-devops-лаб-3)
 - [Helm-чарт (DevOps, Лаб. №4)](#helm-чарт-devops-лаб-4)
 - [Навантажувальне тестування (Лаб. №5)](#навантажувальне-тестування-лаб-5)
+- [Реплікація БД і Read/Write Separation (Лаб. №6)](#реплікація-бд-і-readwrite-separation-лаб-6)
 
 ---
 
@@ -48,7 +52,7 @@
 
 ## Архітектура
 
-### C4 Model — Container Diagram (Лаб. №4: масштабований кластер з розподіленим кешем)
+### C4 Model — Container Diagram (Лаб. №6: кластер з розподіленим кешем і реплікацією БД)
 
 ```mermaid
 flowchart TB
@@ -61,8 +65,9 @@ flowchart TB
         API2["Backend Service — api-2<br/>(NestJS, внутр. :3000)<br/>X-Instance-ID: hostname"]
         API3["Backend Service — api-3<br/>(NestJS, внутр. :3000)<br/>X-Instance-ID: hostname"]
         
-        DB[("PostgreSQL 16<br/>(порт 5432)<br/>Volume: pgdata")]
-        Redis[("Redis 7 — Distributed Cache<br/>(внутр. :6379)<br/>maxmemory 128mb, allkeys-lru")]
+        DB[("PostgreSQL 16 — Primary<br/>database_primary (порт 5432)<br/>read-write · Volume: pgdata_primary")]
+        Replica[("PostgreSQL 16 — Read Replica<br/>database_replica (порт 5433)<br/>hot standby, read-only · Volume: pgdata_replica")]
+        Redis[("Redis 7 — Distributed Cache<br/>(внутр. :6379)<br/>maxmemory 128mb, allkeys-lru<br/>+ sticky-сесії Read-After-Write")]
     end
 
     Client -- "HTTP/REST + JSON (порт 80)" --> Nginx
@@ -70,22 +75,30 @@ flowchart TB
     Nginx -- "Балансування трафіку<br/>+ Passive Health Checks" --> API2
     Nginx -- "Балансування трафіку<br/>+ Passive Health Checks" --> API3
     
-    API1 -- "SQL (Prisma Client)" --> DB
-    API2 -- "SQL (Prisma Client)" --> DB
-    API3 -- "SQL (Prisma Client)" --> DB
+    API1 -- "WRITE + strong / sticky READ<br/>(пул Prisma → Primary)" --> DB
+    API2 -- "WRITE + strong / sticky READ" --> DB
+    API3 -- "WRITE + strong / sticky READ" --> DB
+
+    API1 -. "eventual READ<br/>(пул Prisma → Replica)" .-> Replica
+    API2 -. "eventual READ" .-> Replica
+    API3 -. "eventual READ" .-> Replica
+
+    DB == "WAL streaming (async)<br/>слот replica_1_slot" ==> Replica
 
     API1 -. "Cache-Aside<br/>GET / SET EX / DEL / INCR" .-> Redis
     API2 -. "Cache-Aside" .-> Redis
     API3 -. "Cache-Aside" .-> Redis
     
-    DB -. "дані persist на диск<br/>(volume mount)" .-> DB
 ```
+
+Детальна схема маршрутизації запитів між Primary і Replica: [`docs/LAB6.md`](docs/LAB6.md#2-архітектура-топологія-субд-і-потоки-rw-трафіку).
 
 ### Опис компонентів
 
 - **Nginx (Load Balancer & Reverse Proxy)** — єдина точка входу (`Single Entry Point`, порт 80). Здійснює балансування трафіку між репліками (`api-1`, `api-2`, `api-3`), додає діагностичні заголовки (`X-Upstream-Addr`, `X-Upstream-Response-Time`), виконує пасивний Health Checking та миттєвий Failover за допомогою `proxy_next_upstream`.
 - **Backend Services (`api-1`, `api-2`, `api-3`)** — пул повністю ідентичних, незалежних, взаємозамінних stateless-екземплярів NestJS. Не діляться внутрішньою пам'яттю, ідентифікують себе через заголовок `X-Instance-ID`, мають вбудований endpoint `GET /health` та підтримку симуляції затримок.
-- **PostgreSQL** — єдине джерело істини (`Single Source of Truth`). Зберігає стан на persistent volume (`pgdata`).
+- **PostgreSQL Primary** — єдине джерело істини (`Single Source of Truth`): приймає всі записи і строго узгоджені читання, асинхронно стрімить WAL на Replica.
+- **PostgreSQL Read Replica** — hot standby у режимі read-only: обслуговує eventual-читання (каталог, пошук, списки). При її відмові читання автоматично переходять на Primary.
 - **Redis (Distributed Cache)** — спільний для всіх інстансів кеш read-intensive запитів (паттерн Cache-Aside). Не є джерелом істини: при його недоступності API працює напряму з PostgreSQL.
 - **Мережа `hotel_booking_net`** — ізольована bridge-мережа Docker. Прямий доступ до контейнерів API ззовні закритий (повна інкапсуляція).
 
@@ -181,9 +194,11 @@ docker-compose up --build -d
 ```
 
 Автоматично запускаються:
-1. `hotel_booking_db` (PostgreSQL 16) — очікується статус healthy
-2. `hotel_booking_api_1`, `hotel_booking_api_2`, `hotel_booking_api_3` (три репліки NestJS)
-3. `hotel_booking_nginx` (балансувальник на порту 80)
+1. `database_primary` (PostgreSQL 16 Primary) — очікується статус healthy
+2. `database_replica` (PostgreSQL 16 Read Replica) — при першому старті копіює Primary через `pg_basebackup`
+3. `hotel_booking_redis` (розподілений кеш)
+4. `hotel_booking_api_1`, `hotel_booking_api_2`, `hotel_booking_api_3` (три репліки NestJS)
+5. `hotel_booking_nginx` (балансувальник на порту 80)
 
 ### Перевірка роботи системи
 
@@ -202,7 +217,7 @@ docker-compose down
 ## Перевірка персистентності даних
 
 ```bash
-docker-compose restart db
+docker-compose restart db-primary db-replica
 docker ps               # дочекатись статусу healthy
 # GET http://localhost/hotels — збережені дані на місці
 ```
@@ -224,6 +239,7 @@ docker ps               # дочекатись статусу healthy
 | Автоматизований бенчмарк (`benchmark.js`) | Скрипт тестування розподілу, стійкості до відмов та збору p99 |
 | Swagger-документація | Опис усіх endpoints |
 | Архітектурна схема (C4) | Діаграма балансованого кластера |
+| Реплікація БД (`src/database`, `docker/postgres`) | Primary / Replica, Read/Write Separation, Sticky Routing, Primary Fallback, Read-Only Mode |
 
 ---
 
@@ -1048,3 +1064,34 @@ npm run load:report    # перебудувати load-tests/results/SUMMARY.md 
 ```
 
 Ліміти ресурсів і пул з'єднань для відтворюваних замірів: [`load-tests/docker-compose.loadtest.yml`](load-tests/docker-compose.loadtest.yml). Конфіг Nginx для одного інстансу: [`nginx/nginx.single.conf`](nginx/nginx.single.conf).
+
+---
+
+## Реплікація БД і Read/Write Separation (Лаб. №6)
+
+Повний звіт: [`docs/LAB6.md`](docs/LAB6.md) — топологія, класифікація читань, Stale Read, Read-After-Write Consistency, відмовостійкість, порівняння продуктивності, теорія (sync/async/semi-sync, Split-Brain, CAP, PACELC, Raft).
+
+**Топологія:** PostgreSQL 16 Primary (`database_primary`) → асинхронна streaming replication (WAL, слот `replica_1_slot`) → hot standby Replica (`database_replica`, read-only). Конфігурація: [`docker-compose.yml`](docker-compose.yml), [`docker/postgres/`](docker/postgres/).
+
+**Read/Write Separation** — програмно, на рівні Data Access Layer ([`src/database/`](src/database/)): два пули Prisma і маршрутизатор `DbRouter`.
+
+| Виклик у сервісі | Вузол | Приклади |
+|---|---|---|
+| `db.write(fn)` | Primary | усі `POST` / `PATCH` / `DELETE`, Serializable-транзакція бронювання |
+| `db.read(fn)` — eventual | Replica (після власного запису — Primary) | каталог готелів і номерів, пошук, списки |
+| `db.read(fn, Consistency.STRONG)` | Primary | підтвердження бронювання `GET /bookings/:id`, перевірки перед записом |
+
+**Read-After-Write Consistency:** Session Sticky Routing (після запису сесія читає з Primary 5 с, прапорець у Redis, спільний для всіх інстансів) + Explicit Primary Routing для критичних об'єктів. Кожна відповідь містить `X-DB-Node` і `X-DB-Route`.
+
+**Відмовостійкість:** без Replica → Primary Fallback; без Primary → Read-Only Mode (503 на запис, каталог з Replica). Стан — `GET /health` і `GET /replication/status`.
+
+**Продуктивність** (k6, СУБД 0.25 CPU на вузол, Redis вимкнено): у змішаному сценарії D (85 % читань / 15 % бронювань) Primary + Replica дає **×1.87 пікової пропускної здатності** (365 → 683 RPS), точка насичення зсувається з 25–50 до 50–100 VUs, p95 при 100 VUs падає з 479 до 176 мс. При чистому читанні (сценарій A) одна Replica лише переносить навантаження з Primary (×1.00): для масштабування читання потрібні N реплік. Деталі — [`docs/LAB6.md`](docs/LAB6.md#8-порівняльний-аналіз-продуктивності-п-26).
+
+```powershell
+npm run repl:status             # стан реплікації, LSN, lag
+npm run repl:replicate          # запис на Primary → дані на Replica
+npm run repl:stale              # Stale Read і Sticky Routing (синтетичний lag 3 с)
+npm run repl:failover-replica   # docker stop database_replica → Primary Fallback
+npm run repl:failover-primary   # docker stop database_primary → Read-Only Mode
+npm run load:replication        # Single Primary vs Primary + Replica (k6, ~30 хв)
+```

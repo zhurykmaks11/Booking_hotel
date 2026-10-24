@@ -1,7 +1,7 @@
 /**
- * Зведений звіт навантажувального тестування (Лаб. №5).
+ * Зведений звіт навантажувального тестування (Лаб. №5, №6).
  * Читає load-tests/results/*.json (результати k6 і лічильники PostgreSQL) і формує:
- *   results/SUMMARY.md     — таблиці, точка насичення, масштабування, кеш, картка Baseline
+ *   results/SUMMARY.md     — таблиці, точка насичення, масштабування, кеш, реплікація, картка Baseline
  *   results/charts/*.svg   — графіки Throughput і Latency (p50/p95/p99) від навантаження
  *
  * Запуск: node load-tests/report.js
@@ -268,6 +268,49 @@ function main() {
         const c1 = compareChart('cache-p95.svg', 'Кешування: p95 Latency', 'мс', { label: 'Cache disabled', run: off }, { label: 'Warm cache', run: on }, (r) => r.p95, (r) => r.p95);
         const c2 = compareChart('cache-throughput.svg', 'Кешування: Throughput', 'RPS', { label: 'Cache disabled', run: off }, { label: 'Warm cache', run: on }, (r) => r.rps, (r) => r.rps);
         md.push(`![Cache p95](${c1})`, '', `![Cache throughput](${c2})`, '');
+    }
+
+    // ---- Read Scaling Impact (Лаб. №6): Single Primary vs Primary + Replica ----
+    for (const rs of names.filter((n) => n.startsWith('repl-single-'))) {
+        const key = rs.slice('repl-single-'.length);
+        const rr = `repl-replica-${key}`;
+        if (!runs[rr] || !analyses[rs] || !analyses[rr]) continue;
+        const single = runs[rs], replica = runs[rr];
+        const as = analyses[rs], ar = analyses[rr];
+        const sat = (a, run) => (a.saturation ? `${a.saturation.from}–${a.saturation.to} VUs (${a.saturation.reasons.join('; ')})` : `не досягнута до ${run.rows.slice(-1)[0].vus} VUs`);
+        md.push(`## Read Scaling Impact (Лаб. №6): Single Primary vs Primary + Replica — ${single.title}`, '');
+        md.push('| VUs | RPS Single | RPS P+R | p95 Single, мс | p95 P+R, мс | p99 Single, мс | p99 P+R, мс | Error Single, % | Error P+R, % |', '|---|---|---|---|---|---|---|---|---|');
+        for (const a of single.rows) {
+            const b = replica.rows.find((r) => r.vus === a.vus);
+            if (!b) continue;
+            md.push(`| ${a.vus} | ${f1(a.rps)} | ${f1(b.rps)} | ${f1(a.p95)} | ${f1(b.p95)} | ${f1(a.p99)} | ${f1(b.p99)} | ${f2(a.errorRate)} | ${f2(b.errorRate)} |`);
+        }
+        md.push(
+            '',
+            `**Пікова пропускна здатність:** Single Primary — ${f1(as.peak.rps)} RPS, Primary + Replica — ${f1(ar.peak.rps)} RPS (×${f2(ar.peak.rps / as.peak.rps)}).`,
+            `**Стабільна пропускна здатність:** Single Primary — ${f1(as.stable.rps)} RPS при ${as.stable.vus} VUs, Primary + Replica — ${f1(ar.stable.rps)} RPS при ${ar.stable.vus} VUs.`,
+            `**Точка насичення:** Single Primary — ${sat(as, single)}; Primary + Replica — ${sat(ar, replica)}.`,
+            '',
+        );
+        if (single.db && replica.db) {
+            const share = (db) => {
+                const total = db.commits + (db.replicaCommits || 0);
+                return total ? (100 * (db.replicaCommits || 0)) / total : 0;
+            };
+            md.push(
+                '**Розподіл транзакцій між вузлами СУБД:**',
+                '',
+                '| Топологія | Primary, транзакцій/с | Replica, транзакцій/с | Частка на Replica, % |',
+                '|---|---|---|---|',
+                `| Single Primary | ${single.db.commitsPerSec} | ${single.db.replicaCommitsPerSec ?? 0} | ${f1(share(single.db))} |`,
+                `| Primary + Replica | ${replica.db.commitsPerSec} | ${replica.db.replicaCommitsPerSec ?? 0} | ${f1(share(replica.db))} |`,
+                '',
+            );
+        }
+        const c1 = compareChart(`replication-throughput-${key}.svg`, 'Read Scaling: Throughput', 'RPS', { label: 'Single Primary', run: single }, { label: 'Primary + Replica', run: replica }, (r) => r.rps, (r) => r.rps);
+        const c2 = compareChart(`replication-p95-${key}.svg`, 'Read Scaling: p95 Latency', 'мс', { label: 'Single Primary', run: single }, { label: 'Primary + Replica', run: replica }, (r) => r.p95, (r) => r.p95);
+        const c3 = compareChart(`replication-p99-${key}.svg`, 'Read Scaling: p99 Latency', 'мс', { label: 'Single Primary', run: single }, { label: 'Primary + Replica', run: replica }, (r) => r.p99, (r) => r.p99);
+        md.push(`![Read scaling throughput](${c1})`, '', `![Read scaling p95](${c2})`, '', `![Read scaling p99](${c3})`, '');
     }
 
     // ---- Performance Baseline (чернетка за baseline-прогонами) ----

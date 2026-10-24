@@ -28,7 +28,14 @@
     "load:scaling": "powershell -ExecutionPolicy Bypass -File load-tests/run-load-tests.ps1 -Experiment scaling",
     "load:caching": "powershell -ExecutionPolicy Bypass -File load-tests/run-load-tests.ps1 -Experiment caching",
     "load:demo": "powershell -ExecutionPolicy Bypass -File load-tests/run-load-tests.ps1 -Experiment single -Scenario a -Hold 20",
-    "load:report": "node load-tests/report.js"
+    "load:report": "node load-tests/report.js",
+    "load:replication": "powershell -ExecutionPolicy Bypass -File load-tests/run-load-tests.ps1 -Experiment replication -ApplyLimits",
+    "repl:status": "node scripts/replication-demo.js status",
+    "repl:replicate": "node scripts/replication-demo.js replicate",
+    "repl:lag": "node scripts/replication-demo.js lag",
+    "repl:stale": "node scripts/replication-demo.js stale",
+    "repl:failover-replica": "node scripts/replication-demo.js failover-replica",
+    "repl:failover-primary": "node scripts/replication-demo.js failover-primary"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",

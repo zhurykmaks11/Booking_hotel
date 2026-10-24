@@ -114,10 +114,11 @@ export function buildOptions() {
 /**
  * HTTP-запит з тегами: name — шаблон маршруту (щоб id не створювали тисячі окремих метрик),
  * stage — фаза тесту. Додатково фіксує 5xx / 409 / мережеві помилки і HIT кешу.
+ * headers — додаткові заголовки (напр. X-Session-Id у сценарії D, Лаб. №6).
  */
-export function call(method, url, body, name, stage) {
+export function call(method, url, body, name, stage, headers = {}) {
     const params = {
-        headers: body ? { 'Content-Type': 'application/json' } : {},
+        headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers },
         tags: { name, stage },
         timeout: '30s',
     };

@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { HotelsController } from './hotels.controller';
 import { HotelsService } from './hotels.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { DbRouter } from '../database/db-router.service';
 import { CacheService } from '../cache/cache.service';
 
 describe('HotelsController', () => {
@@ -10,7 +10,7 @@ describe('HotelsController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [HotelsController],
-      providers: [HotelsService, { provide: PrismaService, useValue: {} }, { provide: CacheService, useValue: {} }],
+      providers: [HotelsService, { provide: DbRouter, useValue: {} }, { provide: CacheService, useValue: {} }],
     }).compile();
 
     controller = module.get<HotelsController>(HotelsController);

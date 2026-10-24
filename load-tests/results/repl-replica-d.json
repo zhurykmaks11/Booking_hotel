@@ -1,0 +1,103 @@
+{
+  "name": "repl-replica-d",
+  "scenario": "D",
+  "title": "Scenario D — Mixed Read/Write",
+  "finishedAt": "2026-10-24T15:48:59.629Z",
+  "config": {
+    "BASE_URL": "http://nginx",
+    "LEVELS": [
+      10,
+      25,
+      50,
+      100,
+      200
+    ],
+    "WARMUP": 30,
+    "WARMUP_VUS": 5,
+    "RAMP": 10,
+    "HOLD": 60,
+    "THINK": 0.1
+  },
+  "rows": [
+    {
+      "vus": 10,
+      "requests": 6458,
+      "rps": 107.63333333333334,
+      "iterationsPerSec": 93.78333333333333,
+      "avg": 4.934538726231039,
+      "p50": 4.5278085,
+      "p95": 8.410134999999999,
+      "p99": 11.81225962000002,
+      "max": 76.697463,
+      "errorRate": 0,
+      "errors5xx": 0,
+      "conflicts409": 0,
+      "networkErrors": 0,
+      "cacheHitRate": 0
+    },
+    {
+      "vus": 25,
+      "requests": 16012,
+      "rps": 266.8666666666667,
+      "iterationsPerSec": 231.93333333333334,
+      "avg": 6.024855250999274,
+      "p50": 4.4079025000000005,
+      "p95": 9.548285,
+      "p99": 68.01890251999997,
+      "max": 316.405739,
+      "errorRate": 0,
+      "errors5xx": 0,
+      "conflicts409": 0,
+      "networkErrors": 0,
+      "cacheHitRate": 0
+    },
+    {
+      "vus": 50,
+      "requests": 31128,
+      "rps": 518.8,
+      "iterationsPerSec": 452.1333333333333,
+      "avg": 8.549989287265522,
+      "p50": 4.621351499999999,
+      "p95": 20.910246349999955,
+      "p99": 93.35204173999999,
+      "max": 409.70181,
+      "errorRate": 0.009637625289128758,
+      "errors5xx": 3,
+      "conflicts409": 0,
+      "networkErrors": 0,
+      "cacheHitRate": 0
+    },
+    {
+      "vus": 100,
+      "requests": 40952,
+      "rps": 682.5333333333333,
+      "iterationsPerSec": 592.4166666666666,
+      "avg": 59.11513229556612,
+      "p50": 45.261845,
+      "p95": 175.74889194999992,
+      "p99": 273.95058052999974,
+      "max": 590.687654,
+      "errorRate": 0.017093182262160576,
+      "errors5xx": 7,
+      "conflicts409": 0,
+      "networkErrors": 0,
+      "cacheHitRate": 0
+    },
+    {
+      "vus": 200,
+      "requests": 40891,
+      "rps": 681.5166666666667,
+      "iterationsPerSec": 593.9666666666667,
+      "avg": 206.2656334427131,
+      "p50": 92.338504,
+      "p95": 701.85682,
+      "p99": 881.4997466,
+      "max": 1311.159602,
+      "errorRate": 0.014673155462082121,
+      "errors5xx": 6,
+      "conflicts409": 2,
+      "networkErrors": 0,
+      "cacheHitRate": 0
+    }
+  ]
+}

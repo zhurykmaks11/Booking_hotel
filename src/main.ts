@@ -25,6 +25,7 @@ async function bootstrap() {
         .addTag('rooms', 'Управління номерами та пошук')
         .addTag('guests', 'Управління гостями')
         .addTag('bookings', 'Бронювання номерів')
+        .addTag('replication', 'Реплікація БД: Primary / Replica, Replication Lag')
         .build();
 
     const document = SwaggerModule.createDocument(app, config);

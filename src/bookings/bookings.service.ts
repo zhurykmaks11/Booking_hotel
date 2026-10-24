@@ -4,7 +4,7 @@ import {
     ConflictException,
     BadRequestException,
 } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { Consistency, DbRouter } from '../database/db-router.service';
 import { CacheService } from '../cache/cache.service';
 import { CacheKeys } from '../cache/cache-keys';
 import { CreateBookingDto } from './dto/create-booking.dto';
@@ -15,7 +15,7 @@ import { BookingStatus, Prisma } from '@prisma/client';
 @Injectable()
 export class BookingsService {
     constructor(
-        private readonly prisma: PrismaService,
+        private readonly db: DbRouter,
         private readonly cache: CacheService,
     ) {}
 
@@ -36,7 +36,12 @@ export class BookingsService {
             throw new BadRequestException('checkOutDate must be after checkInDate');
         }
 
-        const guest = await this.prisma.guest.findUnique({ where: { id: dto.guestId } });
+        // STRONG: гостя зазвичай реєструють щойно перед бронюванням (сценарій C) —
+        // на Replica його ще може не бути, і бронювання впало б з хибним 404.
+        const guest = await this.db.read(
+            (db) => db.guest.findUnique({ where: { id: dto.guestId } }),
+            Consistency.STRONG,
+        );
         if (!guest) {
             throw new NotFoundException(`Guest with id ${dto.guestId} not found`);
         }
@@ -49,63 +54,78 @@ export class BookingsService {
          * Без цього між SELECT (перевірка) і INSERT (створення) є вікно,
          * у яке може "проскочити" паралельний запит — обидва запити побачать
          * номер вільним і обидва створять бронювання на ті самі дати.
+         * Транзакція цілком виконується на Primary (db.write).
          */
-        const booking = await this.prisma.$transaction(
-            async (tx) => {
-                const room = await tx.room.findUnique({ where: { id: dto.roomId } });
-                if (!room) {
-                    throw new NotFoundException(`Room with id ${dto.roomId} not found`);
-                }
+        const booking = await this.db.write((db) =>
+            db.$transaction(
+                async (tx) => {
+                    const room = await tx.room.findUnique({ where: { id: dto.roomId } });
+                    if (!room) {
+                        throw new NotFoundException(`Room with id ${dto.roomId} not found`);
+                    }
 
-                const overlapping = await tx.booking.findFirst({
-                    where: {
-                        roomId: dto.roomId,
-                        status: { in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
-                        checkInDate: { lt: checkOut },
-                        checkOutDate: { gt: checkIn },
-                    },
-                });
+                    const overlapping = await tx.booking.findFirst({
+                        where: {
+                            roomId: dto.roomId,
+                            status: { in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
+                            checkInDate: { lt: checkOut },
+                            checkOutDate: { gt: checkIn },
+                        },
+                    });
 
-                if (overlapping) {
-                    throw new ConflictException(
-                        `Room is already booked for the selected dates`,
+                    if (overlapping) {
+                        throw new ConflictException(
+                            `Room is already booked for the selected dates`,
+                        );
+                    }
+
+                    const nights = Math.ceil(
+                        (checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24),
                     );
-                }
+                    const totalPrice = Number(room.pricePerNight) * nights;
 
-                const nights = Math.ceil(
-                    (checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24),
-                );
-                const totalPrice = Number(room.pricePerNight) * nights;
-
-                return tx.booking.create({
-                    data: {
-                        roomId: dto.roomId,
-                        guestId: dto.guestId,
-                        checkInDate: checkIn,
-                        checkOutDate: checkOut,
-                        totalPrice,
-                        status: BookingStatus.PENDING,
-                    },
-                });
-            },
-            { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+                    return tx.booking.create({
+                        data: {
+                            roomId: dto.roomId,
+                            guestId: dto.guestId,
+                            checkInDate: checkIn,
+                            checkOutDate: checkOut,
+                            totalPrice,
+                            status: BookingStatus.PENDING,
+                        },
+                    });
+                },
+                { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+            ),
         );
 
         await this.invalidateSearch();
         return booking;
     }
 
+    /** Загальний список / звітність по бронюваннях: eventual → Replica. */
     findAll() {
-        return this.prisma.booking.findMany({
-            include: { room: { include: { hotel: true } }, guest: true },
-        });
+        return this.db.read((db) =>
+            db.booking.findMany({
+                include: { room: { include: { hotel: true } }, guest: true },
+            }),
+        );
     }
 
+    /**
+     * Підтвердження бронювання (статус, сума): STRONG → Explicit Primary Routing.
+     * Клієнт відкриває його одразу після POST /bookings, тож застаріле читання
+     * показало б 404 або старий статус (напр. ще не скасоване).
+     */
     async findOne(id: string) {
-        const booking = await this.prisma.booking.findUnique({
-            where: { id },
-            include: { room: { include: { hotel: true } }, guest: true },
-        });
+        const booking = await this.db.read(
+            (db) =>
+                db.booking.findUnique({
+                    where: { id },
+                    include: { room: { include: { hotel: true } }, guest: true },
+                }),
+            Consistency.STRONG,
+        );
         if (!booking) {
             throw new NotFoundException(`Booking with id ${id} not found`);
         }
@@ -114,14 +134,14 @@ export class BookingsService {
 
     async update(id: string, dto: UpdateBookingDto) {
         await this.findOne(id);
-        const booking = await this.prisma.booking.update({ where: { id }, data: dto });
+        const booking = await this.db.write((db) => db.booking.update({ where: { id }, data: dto }));
         await this.invalidateSearch();
         return booking;
     }
 
     async remove(id: string) {
         await this.findOne(id);
-        const booking = await this.prisma.booking.delete({ where: { id } });
+        const booking = await this.db.write((db) => db.booking.delete({ where: { id } }));
         await this.invalidateSearch();
         return booking;
     }
@@ -135,10 +155,12 @@ export class BookingsService {
         if (booking.status === BookingStatus.COMPLETED) {
             throw new ConflictException('Cannot cancel a completed booking');
         }
-        const cancelled = await this.prisma.booking.update({
-            where: { id },
-            data: { status: BookingStatus.CANCELLED },
-        });
+        const cancelled = await this.db.write((db) =>
+            db.booking.update({
+                where: { id },
+                data: { status: BookingStatus.CANCELLED },
+            }),
+        );
         await this.invalidateSearch();
         return cancelled;
     }

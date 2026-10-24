@@ -1,0 +1,103 @@
+{
+  "name": "repl-replica-a",
+  "scenario": "A",
+  "title": "Scenario A — Read-Intensive",
+  "finishedAt": "2026-10-24T16:02:31.747Z",
+  "config": {
+    "BASE_URL": "http://nginx",
+    "LEVELS": [
+      10,
+      25,
+      50,
+      100,
+      200
+    ],
+    "WARMUP": 30,
+    "WARMUP_VUS": 5,
+    "RAMP": 10,
+    "HOLD": 60,
+    "THINK": 0.1
+  },
+  "rows": [
+    {
+      "vus": 10,
+      "requests": 5707,
+      "rps": 95.11666666666666,
+      "iterationsPerSec": 95.11666666666666,
+      "avg": 4.336632216751351,
+      "p50": 4.206545,
+      "p95": 6.380938099999999,
+      "p99": 8.383939579999971,
+      "max": 81.10223,
+      "errorRate": 0,
+      "errors5xx": 0,
+      "conflicts409": 0,
+      "networkErrors": 0,
+      "cacheHitRate": 0
+    },
+    {
+      "vus": 25,
+      "requests": 14209,
+      "rps": 236.81666666666666,
+      "iterationsPerSec": 236.81666666666666,
+      "avg": 4.847854098740252,
+      "p50": 4.029596,
+      "p95": 7.2797534,
+      "p99": 44.19755080000002,
+      "max": 232.790475,
+      "errorRate": 0,
+      "errors5xx": 0,
+      "conflicts409": 0,
+      "networkErrors": 0,
+      "cacheHitRate": 0
+    },
+    {
+      "vus": 50,
+      "requests": 27968,
+      "rps": 466.1333333333333,
+      "iterationsPerSec": 466.1333333333333,
+      "avg": 6.624093031071225,
+      "p50": 4.056338,
+      "p95": 12.289996199999985,
+      "p99": 87.12561743999993,
+      "max": 273.160241,
+      "errorRate": 0,
+      "errors5xx": 0,
+      "conflicts409": 0,
+      "networkErrors": 0,
+      "cacheHitRate": 0
+    },
+    {
+      "vus": 100,
+      "requests": 34781,
+      "rps": 579.6833333333333,
+      "iterationsPerSec": 579.6833333333333,
+      "avg": 71.92078090911734,
+      "p50": 83.25176,
+      "p95": 178.488339,
+      "p99": 205.02917099999968,
+      "max": 483.462486,
+      "errorRate": 0,
+      "errors5xx": 0,
+      "conflicts409": 0,
+      "networkErrors": 0,
+      "cacheHitRate": 0
+    },
+    {
+      "vus": 200,
+      "requests": 34186,
+      "rps": 569.7666666666667,
+      "iterationsPerSec": 569.7666666666667,
+      "avg": 251.74292946358182,
+      "p50": 109.502929,
+      "p95": 680.30495425,
+      "p99": 822.7134909000001,
+      "max": 1081.129724,
+      "errorRate": 0,
+      "errors5xx": 0,
+      "conflicts409": 0,
+      "networkErrors": 0,
+      "cacheHitRate": 0
+    }
+  ]
+}

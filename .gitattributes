@@ -1,0 +1,2 @@
+# Shell-скрипти виконуються в Linux-контейнерах: CRLF ламає bash ($'\r': command not found)
+*.sh text eol=lf

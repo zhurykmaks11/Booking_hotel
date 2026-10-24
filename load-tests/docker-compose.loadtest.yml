@@ -1,4 +1,4 @@
-# Конфігурація середовища для навантажувального тестування (Лаб. №5, п. 2.2).
+# Конфігурація середовища для навантажувального тестування (Лаб. №5, п. 2.2; Лаб. №6, п. 2.6).
 # Фіксовані ліміти CPU/RAM і явний розмір пулу з'єднань Prisma роблять заміри відтворюваними.
 # Підключається поверх основного файлу:
 #   docker compose -f docker-compose.yml -f load-tests/docker-compose.loadtest.yml up -d
@@ -6,12 +6,17 @@ x-api-limits: &api-limits
   cpus: "1.0"
   mem_limit: 512m
   environment:
-    # Пул Prisma: 10 з'єднань на інстанс, очікування вільного з'єднання не довше 10 с
-    DATABASE_URL: "postgresql://postgres:postgres@db:5432/hotel_booking?schema=public&connection_limit=10&pool_timeout=10"
+    # Пул Prisma: 10 з'єднань на інстанс до кожного вузла, очікування вільного з'єднання не довше 10 с
+    DATABASE_URL: "postgresql://postgres:postgres@db-primary:5432/hotel_booking?schema=public&connect_timeout=2&connection_limit=10&pool_timeout=10"
+    DATABASE_REPLICA_URL: "postgresql://postgres:postgres@db-replica:5432/hotel_booking?schema=public&connect_timeout=2&connection_limit=10&pool_timeout=10"
 
 services:
-  db:
-    cpus: "2.0"
+  # Однакові ліміти для обох вузлів СУБД: Replica додає рівно стільки ж ресурсів для читання
+  db-primary:
+    cpus: "1.0"
+    mem_limit: 1g
+  db-replica:
+    cpus: "1.0"
     mem_limit: 1g
   redis:
     cpus: "0.5"

@@ -1,16 +1,34 @@
 services:
-  db:
+  # Primary Node (Лаб. №6): приймає всі мутуючі транзакції і стрімить WAL на Replica.
+  db-primary:
     image: postgres:16
-    container_name: hotel_booking_db
+    container_name: database_primary
     restart: always
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: hotel_booking
+      REPLICATION_USER: replicator
+      REPLICATION_PASSWORD: replicator
+      REPLICATION_SLOT: replica_1_slot
+    # Асинхронна реплікація: synchronous_standby_names порожній, COMMIT не чекає на Replica
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
+      - -c
+      - wal_keep_size=256MB
+      - -c
+      - synchronous_standby_names=
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata_primary:/var/lib/postgresql/data
+      - ./docker/postgres/primary/01-replication.sh:/docker-entrypoint-initdb.d/01-replication.sh:ro
     networks:
       - hotel_booking_net
     healthcheck:
@@ -18,6 +36,36 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # Read Replica (Лаб. №6): hot standby у режимі read-only, асинхронно відтворює WAL Primary.
+  # Навмисно НЕ в depends_on у API: без Replica читання переходить на Primary (Primary Fallback).
+  db-replica:
+    image: postgres:16
+    container_name: database_replica
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      PRIMARY_HOST: db-primary
+      REPLICATION_USER: replicator
+      REPLICATION_PASSWORD: replicator
+      REPLICATION_SLOT: replica_1_slot
+    entrypoint: ["bash", "/docker/replica-entrypoint.sh"]
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata_replica:/var/lib/postgresql/data
+      - ./docker/postgres/replica/entrypoint.sh:/docker/replica-entrypoint.sh:ro
+    depends_on:
+      db-primary:
+        condition: service_healthy
+    networks:
+      - hotel_booking_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   # Розподілений кеш (Лаб. №4): один Redis, спільний для всіх інстансів API.
   # Навмисно НЕ в depends_on у API: сервіс має стартувати і працювати без Redis (graceful degradation).
@@ -44,11 +92,15 @@ services:
     expose:
       - "3000"
     environment:
-      DATABASE_URL: "postgresql://postgres:postgres@db:5432/hotel_booking?schema=public"
+      DATABASE_URL: "postgresql://postgres:postgres@db-primary:5432/hotel_booking?schema=public&connect_timeout=2"
+      # Read/Write Separation (Лаб. №6): порожнє значення = усі запити на Primary
+      DATABASE_REPLICA_URL: "postgresql://postgres:postgres@db-replica:5432/hotel_booking?schema=public&connect_timeout=2"
+      # Sticky Routing: після запису читання сесії йдуть на Primary протягом TTL
+      RYW_STICKY_TTL_MS: "5000"
       SYNTHETIC_DELAY_MS: "0"
       REDIS_URL: "redis://redis:6379"
     depends_on:
-      db:
+      db-primary:
         condition: service_healthy
     networks:
       - hotel_booking_net
@@ -60,11 +112,15 @@ services:
     expose:
       - "3000"
     environment:
-      DATABASE_URL: "postgresql://postgres:postgres@db:5432/hotel_booking?schema=public"
+      DATABASE_URL: "postgresql://postgres:postgres@db-primary:5432/hotel_booking?schema=public&connect_timeout=2"
+      # Read/Write Separation (Лаб. №6): порожнє значення = усі запити на Primary
+      DATABASE_REPLICA_URL: "postgresql://postgres:postgres@db-replica:5432/hotel_booking?schema=public&connect_timeout=2"
+      # Sticky Routing: після запису читання сесії йдуть на Primary протягом TTL
+      RYW_STICKY_TTL_MS: "5000"
       SYNTHETIC_DELAY_MS: "0"
       REDIS_URL: "redis://redis:6379"
     depends_on:
-      db:
+      db-primary:
         condition: service_healthy
     networks:
       - hotel_booking_net
@@ -76,11 +132,15 @@ services:
     expose:
       - "3000"
     environment:
-      DATABASE_URL: "postgresql://postgres:postgres@db:5432/hotel_booking?schema=public"
+      DATABASE_URL: "postgresql://postgres:postgres@db-primary:5432/hotel_booking?schema=public&connect_timeout=2"
+      # Read/Write Separation (Лаб. №6): порожнє значення = усі запити на Primary
+      DATABASE_REPLICA_URL: "postgresql://postgres:postgres@db-replica:5432/hotel_booking?schema=public&connect_timeout=2"
+      # Sticky Routing: після запису читання сесії йдуть на Primary протягом TTL
+      RYW_STICKY_TTL_MS: "5000"
       SYNTHETIC_DELAY_MS: "0"
       REDIS_URL: "redis://redis:6379"
     depends_on:
-      db:
+      db-primary:
         condition: service_healthy
     networks:
       - hotel_booking_net
@@ -109,4 +169,5 @@ networks:
     driver: bridge
 
 volumes:
-  pgdata:
+  pgdata_primary:
+  pgdata_replica:

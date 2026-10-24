@@ -1,0 +1,14 @@
+﻿{
+    "name":  "repl-replica-d",
+    "durationSec":  386.4,
+    "commits":  145889,
+    "rollbacks":  31,
+    "tuplesReturned":  226108,
+    "tuplesFetched":  219439,
+    "tuplesInserted":  20792,
+    "commitsPerSec":  377.6,
+    "rollbacksPerSec":  0.08,
+    "replicaCommits":  236769,
+    "replicaCommitsPerSec":  612.8,
+    "replicaTuplesReturned":  27247920
+}
