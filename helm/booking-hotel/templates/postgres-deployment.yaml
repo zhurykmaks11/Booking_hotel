@@ -38,7 +38,7 @@ spec:
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "booking-hotel.fullname" . }}-secret
+                  name: {{ include "booking-hotel.secretName" . }}
                   key: POSTGRES_PASSWORD
             # Підкаталог: корінь тому може містити lost+found
             - name: PGDATA

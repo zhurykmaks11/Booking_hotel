@@ -1,0 +1,28 @@
+# Середовище minikube під керуванням Argo CD (DevOps, Лаб. №5).
+# Цей файл — "джерело правди": зміна тега / реплік тут + git push = зміна в кластері.
+api:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/zhurykmaks11/booking-hotel-api
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+
+config:
+  nodeEnv: production
+
+ingress:
+  enabled: false
+
+# Secret з паролем БД створюється вручну (не з Git), Argo CD його не видаляє навіть з prune:
+#   kubectl -n booking-hotel-gitops create secret generic booking-hotel-db-secret \
+#     --from-literal=POSTGRES_PASSWORD=... --from-literal=DATABASE_URL=postgresql://postgres:...@booking-hotel-postgres:5432/hotel_booking?schema=public
+existingSecret: booking-hotel-db-secret
+
+# Argo CD виконує Helm-хуки pre-install/pre-upgrade як PreSync — тобто ПЕРЕД створенням ресурсів,
+# зокрема й при першій синхронізації, коли Postgres ще немає. Перевірка БД тоді завжди падала б.
+hooks:
+  preUpgradeDbCheck:
+    enabled: false
+# helm test Argo CD не запускає — під тесту не потрібен.
+tests:
+  enabled: false

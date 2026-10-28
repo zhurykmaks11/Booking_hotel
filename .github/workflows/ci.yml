@@ -25,6 +25,42 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # Чи змінився код (DevOps Лаб. №5, GitOps). Зміни лише конфігурації розгортання
+  # (helm/, argocd-apps/, bootstrap/, k8s/, docs/, *.md) не збирають і не публікують образ.
+  # Фільтр на рівні кроків, а не on.push.paths-ignore: пропущений workflow лишив би
+  # обов'язкові перевірки PR у стані "Expected — Waiting", і PR неможливо було б змерджити.
+  # ---------------------------------------------------------------------------
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Filter paths
+        id: filter
+        # для git-тегу фільтр не потрібен: тег vX.Y.Z збирає образ завжди
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: dorny/paths-filter@v3
+        with:
+          # файл вважається "кодом", лише якщо він не підпадає під жоден виняток нижче
+          predicate-quantifier: every
+          filters: |
+            code:
+              - '**'
+              - '!helm/**'
+              - '!argocd-apps/**'
+              - '!bootstrap/**'
+              - '!k8s/**'
+              - '!docs/**'
+              - '!**/*.md'
+
+  # ---------------------------------------------------------------------------
   # Статичний аналіз (блокуючий). Порушення відображаються як анотації в PR.
   # ---------------------------------------------------------------------------
   lint:
@@ -140,11 +176,15 @@ jobs:
   # ---------------------------------------------------------------------------
   # Контейнерні образи: збірка -> сканування -> публікація (лише для push)
   # Запускається тільки після успіху ВСІХ попередніх завдань.
+  # Якщо змінилась лише конфігурація розгортання — кроки пропускаються (job лишається зеленим).
+  # Git-тег vX.Y.Z збирає образ завжди.
   # ---------------------------------------------------------------------------
   docker:
     name: Docker image (${{ matrix.service }})
-    needs: [lint, api, nginx]
+    needs: [changes, lint, api, nginx]
     runs-on: ubuntu-latest
+    env:
+      BUILD: ${{ needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/') }}
     permissions:
       contents: read
       packages: write
@@ -158,17 +198,25 @@ jobs:
             dockerfile: nginx/Dockerfile
 
     steps:
+      - name: Skip (only deployment config changed)
+        if: env.BUILD != 'true'
+        run: echo "::notice::Змінено лише helm/ argocd-apps/ bootstrap/ k8s/ docs/ *.md — образ не збирається"
+
       - name: Checkout
+        if: env.BUILD == 'true'
         uses: actions/checkout@v5
 
       - name: Compute image name (lowercase)
+        if: env.BUILD == 'true'
         run: echo "IMAGE=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/booking-hotel-${{ matrix.service }}" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
+        if: env.BUILD == 'true'
         uses: docker/setup-buildx-action@v3
 
       # Теги: sha-<commit> завжди; X.Y.Z — для git-тегу vX.Y.Z; latest — тільки для гілки main
       - name: Docker metadata (tags & labels)
+        if: env.BUILD == 'true'
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -181,6 +229,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build image (local only, no push)
+        if: env.BUILD == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -196,6 +245,7 @@ jobs:
 
 
       - name: Vulnerability scan (Grype)
+        if: env.BUILD == 'true'
         uses: anchore/scan-action@v6
         with:
           # сканується один (перший) тег — образ той самий для всіх тегів
@@ -206,7 +256,7 @@ jobs:
           output-format: table
 
       - name: Log in to GHCR
-        if: github.event_name == 'push'
+        if: env.BUILD == 'true' && github.event_name == 'push'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -214,5 +264,5 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push image
-        if: github.event_name == 'push'
+        if: env.BUILD == 'true' && github.event_name == 'push'
         run: docker push --all-tags "$IMAGE"

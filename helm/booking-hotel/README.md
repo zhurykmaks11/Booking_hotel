@@ -71,6 +71,7 @@ helm/booking-hotel/
 ├── values.yaml             # значення за замовчуванням (= dev)
 ├── values-dev.yaml         # середовище розробки
 ├── values-prod.yaml        # продакшн
+├── values-minikube.yaml    # minikube під керуванням Argo CD (Лаб. №5)
 ├── .helmignore             # що не потрапляє в пакет
 ├── README.md               # цей файл
 └── templates/
@@ -94,7 +95,7 @@ helm/booking-hotel/
 
 | Поле | Значення | Що означає | Коли змінюється |
 |---|---|---|---|
-| `version` | `0.1.1` | версія **чарта**, тобто пакування: шаблони, values, хуки | при будь-якій зміні в `helm/booking-hotel/` |
+| `version` | `0.2.0` | версія **чарта**, тобто пакування: шаблони, values, хуки | при будь-якій зміні в `helm/booking-hotel/` |
 | `appVersion` | `1.1.0` | версія **застосунку**, тобто тег образу API за замовчуванням | з новим релізом коду (git-тег `vX.Y.Z` → образ `X.Y.Z`) |
 
 Приклад із роботи: виправлення міток подів Postgres і Redis змінило `version` `0.1.0` → `0.1.1`, а `appVersion` лишився `1.1.0`, бо код застосунку не змінювався. Якщо `api.image.tag` порожній, використовується `appVersion`.
@@ -170,7 +171,8 @@ helm/booking-hotel/
 | `redis.image.repository` / `tag` | `redis` / `7-alpine` | образ Redis |
 | `redis.maxMemory` | `128mb` | ліміт пам'яті Redis |
 | `redis.resources` | req `50m/64Mi`, lim `250m/192Mi` | ресурси Redis |
-| `secrets.postgresPassword` | `dev-only-change-me` (навчальний) | пароль БД → Secret |
+| `existingSecret` | `""` | ім'я Secret, створеного вручну; якщо задано, `secret.yaml` не рендериться (Лаб. №5, Argo CD) |
+| `secrets.postgresPassword` | `dev-only-change-me` (навчальний) | пароль БД → Secret (коли `existingSecret` порожній) |
 | `hooks.preUpgradeDbCheck.enabled` | `true` | хук pre-upgrade |
 | `tests.enabled` / `tests.image` | `true` / `busybox:1.36` | тест релізу |
 

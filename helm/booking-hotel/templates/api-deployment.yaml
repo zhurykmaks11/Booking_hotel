@@ -37,7 +37,7 @@ spec:
             - configMapRef:
                 name: {{ include "booking-hotel.fullname" . }}-config
             - secretRef:
-                name: {{ include "booking-hotel.fullname" . }}-secret
+                name: {{ include "booking-hotel.secretName" . }}
           resources:
             {{- toYaml .Values.api.resources | nindent 12 }}
           # Старт включає prisma migrate deploy — до 150 с

@@ -1,0 +1,21 @@
+# Кореневий Application (App of Apps). Застосовується ВРУЧНУ один раз:
+#   kubectl apply -f bootstrap/root.yaml
+# Далі Argo CD сам стежить за каталогом argocd-apps/ і створює/оновлює/видаляє дочірні Application-и.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/zhurykmaks11/Booking_hotel.git
+    targetRevision: main
+    path: argocd-apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -82,3 +82,10 @@ app.kubernetes.io/part-of: booking-hotel
 {{ include "booking-hotel.selectorLabels" . }}
 app.kubernetes.io/part-of: booking-hotel
 {{- end }}
+
+{{/*
+Ім'я Secret з паролем БД: existingSecret (створений вручну) або <fullname>-secret (з чарта).
+*/}}
+{{- define "booking-hotel.secretName" -}}
+{{- default (printf "%s-secret" (include "booking-hotel.fullname" .)) .Values.existingSecret }}
+{{- end }}
