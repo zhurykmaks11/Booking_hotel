@@ -1,0 +1,25 @@
+# Application застосунку. Назва Application = назва Helm-релізу -> об'єкти booking-hotel-api, -postgres, -redis
+# (як у Лаб. №4 при helm install booking-hotel).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: booking-hotel
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/zhurykmaks11/Booking_hotel.git
+    targetRevision: main
+    path: helm/booking-hotel
+    helm:
+      valueFiles:
+        - values-minikube.yaml   # шлях відносно каталогу чарта (path)
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: booking-hotel
+  syncPolicy:
+    automated:
+      prune: true
+      # selfHeal: true   # п. 6a: розкоментувати, щоб Argo CD повертав ручні зміни в кластері
+    syncOptions:
+      - CreateNamespace=true

@@ -82,7 +82,10 @@ redis:
       memory: 192Mi
 
 # --- Секрети (Secret) ---
-# Навчальне значення для dev. Справжній пароль передається лише через --set, у файлах не зберігається.
+# Ім'я Secret, створеного вручну (kubectl create secret ...). Якщо задано — шаблон Secret НЕ рендериться,
+# а Deployment-и беруть POSTGRES_PASSWORD і DATABASE_URL з цього Secret (GitOps, Лаб. №5).
+existingSecret: ""
+# Навчальне значення для dev (лише коли existingSecret порожній). Справжній пароль — тільки через --set.
 secrets:
   postgresPassword: "dev-only-change-me"
 
