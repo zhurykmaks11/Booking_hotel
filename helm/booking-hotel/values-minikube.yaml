@@ -14,7 +14,7 @@ ingress:
   enabled: false
 
 # Secret з паролем БД створюється вручну (не з Git), Argo CD його не видаляє навіть з prune:
-#   kubectl -n booking-hotel create secret generic booking-hotel-db-secret \
+#   kubectl -n booking-hotel-gitops create secret generic booking-hotel-db-secret \
 #     --from-literal=POSTGRES_PASSWORD=... --from-literal=DATABASE_URL=postgresql://postgres:...@booking-hotel-postgres:5432/hotel_booking?schema=public
 existingSecret: booking-hotel-db-secret
 

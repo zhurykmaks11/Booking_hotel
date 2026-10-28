@@ -16,7 +16,9 @@ spec:
         - values-minikube.yaml   # шлях відносно каталогу чарта (path)
   destination:
     server: https://kubernetes.default.svc
-    namespace: booking-hotel
+    # Окремий namespace: реліз Лаб. №4 (helm install у booking-hotel) лишається недоторканим,
+    # і в кожного namespace одне джерело правди — Helm або Argo CD
+    namespace: booking-hotel-gitops
   syncPolicy:
     automated:
       prune: true
