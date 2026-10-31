@@ -1,0 +1,103 @@
+{
+  "name": "hot-hash-g",
+  "scenario": "G",
+  "title": "Scenario G — Hot Shard (90% записів у Kyiv)",
+  "finishedAt": "2026-10-31T20:59:26.443Z",
+  "config": {
+    "BASE_URL": "http://nginx",
+    "LEVELS": [
+      10,
+      25,
+      50,
+      100,
+      200
+    ],
+    "WARMUP": 30,
+    "WARMUP_VUS": 5,
+    "RAMP": 10,
+    "HOLD": 60,
+    "THINK": 0.1
+  },
+  "rows": [
+    {
+      "vus": 10,
+      "requests": 9896,
+      "rps": 164.93333333333334,
+      "iterationsPerSec": 82.46666666666667,
+      "avg": 9.786507996665309,
+      "p50": 8.1908225,
+      "p95": 16.1903275,
+      "p99": 74.42325129999973,
+      "max": 206.793679,
+      "errorRate": 0,
+      "errors5xx": 0,
+      "conflicts409": 0,
+      "networkErrors": 0,
+      "cacheHitRate": null
+    },
+    {
+      "vus": 25,
+      "requests": 22455,
+      "rps": 374.25,
+      "iterationsPerSec": 187.13333333333333,
+      "avg": 16.20038637034076,
+      "p50": 9.48365,
+      "p95": 63.78307569999995,
+      "p99": 103.10010937999995,
+      "max": 828.111423,
+      "errorRate": 0,
+      "errors5xx": 0,
+      "conflicts409": 1,
+      "networkErrors": 0,
+      "cacheHitRate": null
+    },
+    {
+      "vus": 50,
+      "requests": 27201,
+      "rps": 453.35,
+      "iterationsPerSec": 226.68333333333334,
+      "avg": 59.81353745612257,
+      "p50": 35.99682,
+      "p95": 187.251539,
+      "p99": 268.844579,
+      "max": 633.767125,
+      "errorRate": 0,
+      "errors5xx": 0,
+      "conflicts409": 1,
+      "networkErrors": 0,
+      "cacheHitRate": null
+    },
+    {
+      "vus": 100,
+      "requests": 26735,
+      "rps": 445.5833333333333,
+      "iterationsPerSec": 222.83333333333334,
+      "avg": 173.16337463527108,
+      "p50": 114.443561,
+      "p95": 502.335137,
+      "p99": 731.285187639999,
+      "max": 1668.314277,
+      "errorRate": 0,
+      "errors5xx": 0,
+      "conflicts409": 5,
+      "networkErrors": 0,
+      "cacheHitRate": null
+    },
+    {
+      "vus": 200,
+      "requests": 27001,
+      "rps": 450.01666666666665,
+      "iterationsPerSec": 225.4,
+      "avg": 392.3527305716845,
+      "p50": 187.08297,
+      "p95": 1423.555955,
+      "p99": 2001.593744,
+      "max": 3592.816889,
+      "errorRate": 0.14814266138291174,
+      "errors5xx": 40,
+      "conflicts409": 7,
+      "networkErrors": 0,
+      "cacheHitRate": null
+    }
+  ]
+}

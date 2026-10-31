@@ -35,7 +35,19 @@
     "repl:lag": "node scripts/replication-demo.js lag",
     "repl:stale": "node scripts/replication-demo.js stale",
     "repl:failover-replica": "node scripts/replication-demo.js failover-replica",
-    "repl:failover-primary": "node scripts/replication-demo.js failover-primary"
+    "repl:failover-primary": "node scripts/replication-demo.js failover-primary",
+    "shard:up": "docker compose -f docker-compose.yml -f docker-compose.sharding.yml up -d --build",
+    "shard:status": "node scripts/sharding-demo.js status",
+    "shard:seed": "node scripts/sharding-demo.js seed",
+    "shard:routing": "node scripts/sharding-demo.js routing",
+    "shard:distribution": "node scripts/sharding-demo.js distribution",
+    "shard:hot": "node scripts/sharding-demo.js hot",
+    "shard:latency": "node scripts/sharding-demo.js latency",
+    "shard:saga": "node scripts/sharding-demo.js saga",
+    "shard:resharding": "node scripts/sharding-demo.js resharding",
+    "shard:isolation": "node scripts/sharding-demo.js isolation",
+    "load:sharding": "powershell -ExecutionPolicy Bypass -File load-tests/run-load-tests.ps1 -Experiment sharding -ApplyLimits",
+    "load:report-sharding": "node load-tests/report-sharding.js"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",

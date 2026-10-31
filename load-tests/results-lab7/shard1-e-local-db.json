@@ -1,0 +1,29 @@
+﻿{
+    "name":  "shard1-e-local",
+    "durationSec":  389.1,
+    "commits":  19700,
+    "rollbacks":  0,
+    "tuplesReturned":  27949,
+    "tuplesFetched":  21447,
+    "tuplesInserted":  100,
+    "commitsPerSec":  50.6,
+    "rollbacksPerSec":  0,
+    "replicaCommits":  514,
+    "replicaCommitsPerSec":  1.3,
+    "replicaTuplesReturned":  172,
+    "shards":  {
+                   "database_shard_a":  {
+                                            "commits":  135158,
+                                            "commitsPerSec":  347.4,
+                                            "writes":  37998,
+                                            "tuplesReturned":  85835731
+                                        },
+                   "database_shard_b":  {
+                                            "commits":  89,
+                                            "commitsPerSec":  0.2,
+                                            "writes":  0,
+                                            "tuplesReturned":  6724
+                                        }
+               },
+    "shardTopology":  "1 shard(s), strategy=hash"
+}

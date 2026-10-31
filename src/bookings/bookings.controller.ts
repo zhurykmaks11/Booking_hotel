@@ -1,8 +1,9 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { BookingsService } from './bookings.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
+import { RelocateBookingDto } from './dto/relocate-booking.dto';
 
 @ApiTags('bookings')
 @Controller('bookings')
@@ -38,6 +39,15 @@ export class BookingsController {
     @ApiResponse({ status: 409, description: 'Бронювання вже скасовано або завершено' })
     cancel(@Param('id') id: string) {
         return this.bookingsService.cancel(id);
+    }
+
+    @Post(':id/relocate')
+    @HttpCode(200)
+    @ApiOperation({ summary: 'Переселити в інший номер (Лаб. №7): локальна транзакція або Saga між шардами' })
+    @ApiResponse({ status: 200, description: 'Переселено: mode = local-transaction (один шард) або saga (різні шарди), steps — кроки саги' })
+    @ApiResponse({ status: 409, description: 'Новий номер зайнятий або сага перервана (виконано компенсацію, див. steps)' })
+    relocate(@Param('id') id: string, @Body() dto: RelocateBookingDto) {
+        return this.bookingsService.relocate(id, dto);
     }
 
     @Patch(':id')

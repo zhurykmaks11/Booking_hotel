@@ -41,7 +41,28 @@ function loadExistingRooms() {
     return res
         .json()
         .filter((r) => r.hotel && typeof r.hotel.name === 'string' && r.hotel.name.startsWith(HOTEL_PREFIX))
-        .map((r) => ({ id: r.id, hotelId: r.hotelId, capacity: r.capacity }));
+        .map((r) => ({ id: r.id, hotelId: r.hotelId, capacity: r.capacity, city: r.hotel.city }));
+}
+
+// Лаб. №7: SEED_CITY_WEIGHTS="Kyiv:40,Lviv:20,..." — реалістично нерівномірний розподіл готелів за містами.
+// Без змінної — міста по колу (поведінка Лаб. №5–6).
+const CITY_WEIGHTS = (__ENV.SEED_CITY_WEIGHTS || '')
+    .split(',')
+    .map((part) => part.split(':'))
+    .filter((pair) => pair.length === 2 && Number(pair[1]) > 0)
+    .map(([city, weight]) => ({ city: city.trim(), weight: Number(weight) }));
+
+function cityFor(i) {
+    if (!CITY_WEIGHTS.length) return CITIES[i % CITIES.length];
+    // Детерміновано: i-й готель потрапляє в місто за накопиченою часткою
+    const total = CITY_WEIGHTS.reduce((acc, c) => acc + c.weight, 0);
+    const hotels = Number(__ENV.SEED_HOTELS || 20);
+    let point = ((i + 0.5) / hotels) * total;
+    for (const c of CITY_WEIGHTS) {
+        if (point < c.weight) return c.city;
+        point -= c.weight;
+    }
+    return CITY_WEIGHTS[CITY_WEIGHTS.length - 1].city;
 }
 
 export function seed() {
@@ -63,7 +84,7 @@ export function seed() {
             hotelBodies.push({
                 name: `${HOTEL_PREFIX} ${runId}-${i + 1}`,
                 address: `Load Test St ${i + 1}`,
-                city: CITIES[i % CITIES.length],
+                city: cityFor(i),
                 rating: 3 + (i % 3),
             });
         }
@@ -97,5 +118,6 @@ export function seed() {
         `setup: ${hotelIds.length} готелів, ${rooms.length} номерів, ${guests.length} гостей (runId=${runId})`,
     );
 
-    return { runId, rooms, hotelIds, guestIds: guests.map((g) => g.id), cities: CITIES };
+    const cities = CITY_WEIGHTS.length ? CITY_WEIGHTS.map((c) => c.city) : CITIES;
+    return { runId, rooms, hotelIds, guestIds: guests.map((g) => g.id), cities };
 }

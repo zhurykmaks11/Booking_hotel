@@ -7,6 +7,7 @@
 - **Лабораторна робота №4** — Distributed Caching.
 - **Лабораторна робота №5** — Load & Performance Baseline.
 - **Лабораторна робота №6** — Database Replication & Read/Write Separation.
+- **Лабораторна робота №7** — Data Scaling: Sharding & Partitioning.
 
 ---
 
@@ -33,6 +34,7 @@
 - [Helm-чарт (DevOps, Лаб. №4)](#helm-чарт-devops-лаб-4)
 - [Навантажувальне тестування (Лаб. №5)](#навантажувальне-тестування-лаб-5)
 - [Реплікація БД і Read/Write Separation (Лаб. №6)](#реплікація-бд-і-readwrite-separation-лаб-6)
+- [Шардинг даних (Лаб. №7)](#шардинг-даних-лаб-7)
 
 ---
 
@@ -92,6 +94,8 @@ flowchart TB
 ```
 
 Детальна схема маршрутизації запитів між Primary і Replica: [`docs/LAB6.md`](docs/LAB6.md#2-архітектура-топологія-субд-і-потоки-rw-трафіку).
+
+Лаб. №7 додає шари даних: два шарди PostgreSQL для агрегату «Готель → Номери → Бронювання» і Shard Router в API; глобальний вузол вище зберігає гостей. Оновлена схема: [`docs/LAB7.md`](docs/LAB7.md#2-архітектура).
 
 ### Опис компонентів
 
@@ -1094,4 +1098,41 @@ npm run repl:stale              # Stale Read і Sticky Routing (синтетич
 npm run repl:failover-replica   # docker stop database_replica → Primary Fallback
 npm run repl:failover-primary   # docker stop database_primary → Read-Only Mode
 npm run load:replication        # Single Primary vs Primary + Replica (k6, ~30 хв)
+```
+
+---
+
+## Шардинг даних (Лаб. №7)
+
+Повний звіт для здачі: [`docs/LAB7.md`](docs/LAB7.md) — вибір ключа, Shard Router, Distribution Matrix, Hot Shard, Cross-Shard запити, Saga, модель решардингу, бенчмарк, опис кожного файлу, теорія. Таблиці й графіки: [`load-tests/results-lab7/SUMMARY.md`](load-tests/results-lab7/SUMMARY.md).
+
+**Що шардується:** агрегат `Hotel → Room → Booking` за ключем **`hotelId`** (висока потужність, усі записи й транзакція бронювання — в межах одного готелю). Гості — глобальний нешардований довідник на вузлі з Лаб. №6 (глобальна унікальність `email`).
+
+**Топологія** ([`docker-compose.sharding.yml`](docker-compose.sharding.yml)): `database_shard_a` (:5434) і `database_shard_b` (:5435) — незалежні PostgreSQL 16; міграції на всі вузли накатує [`docker/api/entrypoint.sh`](docker/api/entrypoint.sh).
+
+**Shard Router** ([`src/sharding/`](src/sharding/)): `hotelId → FNV-1a mod 64 → віртуальний бакет → карта бакетів → шард`. Номер бакета записаний у перші 2 hex-символи ID готелю, його номерів і бронювань, тому будь-який `/hotels/:id`, `/rooms/:id`, `/bookings/:id` маршрутизується за O(1) без довідника. Запити без ключа (пошук, історія гостя, звіти) — Fan-out / Scatter-Gather. Заголовки: `X-Shard`, `X-Shard-Bucket`, `X-Shard-Fanout`, `X-Shard-Partial`.
+
+| Ендпоінт | Призначення |
+|---|---|
+| `GET /sharding/status` | топологія, стратегія, карта бакетів, стан шардів |
+| `GET /sharding/route/:id` | бакет і шард для ID |
+| `GET /sharding/distribution` | Dataset Distribution Matrix |
+| `GET /sharding/analytics/hotels/:id` / `…/cities` | Shard-Local vs Cross-Shard аналітика |
+| `GET /sharding/resharding` | модель решардингу (modulo / virtual buckets / consistent hashing) |
+| `POST /bookings/:id/relocate` | переселення між шардами — Saga з компенсацією |
+
+**Результати** (k6, шард 0.25 CPU, Redis вимкнено): Shard-Local навантаження — **× 1.82 пікової пропускної здатності** на 2 шардах (283 → 516 RPS), p95 на 50 VUs 303 → 93 мс; Cross-Shard fan-out — лише × 1.46 (190 → 277 RPS), бо кожен запит виконується на всіх шардах. Hot Shard: при наївному ключі `city` 95 % записів іде на один шард (CPU 21.5 % проти 3.4 %), заміна на `hash` + Virtual Buckets вирівнює навантаження і піднімає пік з 295 до 453 RPS. Решардинг 3 → 4: `key % N` переносить 75 % даних, Virtual Buckets — 25 % (теоретичний мінімум).
+
+```powershell
+npm run shard:up                                   # кластер з 2 шардами
+node scripts/sharding-demo.js seed                 # 200 готелів, 1000 номерів, ~2000 бронювань
+node scripts/sharding-demo.js routing              # детермінована маршрутизація
+node scripts/sharding-demo.js distribution         # Distribution Matrix
+node scripts/sharding-demo.js reset --strategy city   # наївна стратегія → Hot Shard
+node scripts/sharding-demo.js hot --cpus 0.25      # сплеск 90 % бронювань у Kyiv
+node scripts/sharding-demo.js latency              # Shard-Local vs Fan-out
+node scripts/sharding-demo.js saga                 # Saga і компенсація
+node scripts/sharding-demo.js isolation            # збій одного шарду
+node scripts/sharding-demo.js resharding           # modulo vs virtual buckets vs consistent hashing
+npm run load:sharding                              # Single Node vs Sharded (k6, ~50 хв)
 ```

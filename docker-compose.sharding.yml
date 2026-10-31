@@ -1,0 +1,59 @@
+# Лаб. №7 — Sharded Architecture Topology. Підключається поверх основного файлу:
+#   docker compose -f docker-compose.yml -f docker-compose.sharding.yml up -d --build
+#
+#   db-primary + db-replica (Лаб. №6) — глобальний вузол: довідник гостей (нешардований);
+#   db-shard-a, db-shard-b            — шарди агрегату «Готель → Номери → Бронювання» (ключ hotelId);
+#   api-1..3                          — Shard Router у Data Access Layer (src/sharding).
+#
+# Шарди без іменованих томів: свіжий порожній шард (напр. після зміни стратегії) —
+#   docker compose -f docker-compose.yml -f docker-compose.sharding.yml up -d --force-recreate --renew-anon-volumes db-shard-a db-shard-b
+
+x-shard: &shard
+  image: postgres:16
+  restart: always
+  environment:
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    POSTGRES_DB: hotel_booking
+  networks:
+    - hotel_booking_net
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U postgres -d hotel_booking"]
+    interval: 5s
+    timeout: 5s
+    retries: 10
+
+x-api-sharding: &api-sharding
+  environment:
+    # Порядок важливий: перший URL — shard-a, другий — shard-b (індекс у карті бакетів)
+    SHARD_URLS: "postgresql://postgres:postgres@db-shard-a:5432/hotel_booking?schema=public&connect_timeout=2,postgresql://postgres:postgres@db-shard-b:5432/hotel_booking?schema=public&connect_timeout=2"
+    # hash — рівномірний розподіл за hotelId; city — «наївний» геошардинг для моделювання Hot Shard
+    SHARD_STRATEGY: "${SHARD_STRATEGY:-hash}"
+    # Явна карта бакетів (порожньо = bucket mod N), напр. "0-31:0,32-63:1"
+    SHARD_BUCKET_MAP: "${SHARD_BUCKET_MAP:-}"
+    # Дозволяє POST /bookings/:id/relocate з simulateFailure=true (демонстрація компенсації Saga)
+    SAGA_FAULT_INJECTION: "true"
+  depends_on:
+    db-primary:
+      condition: service_healthy
+    db-shard-a:
+      condition: service_healthy
+    db-shard-b:
+      condition: service_healthy
+
+services:
+  db-shard-a:
+    <<: *shard
+    container_name: database_shard_a
+    ports:
+      - "5434:5432"
+
+  db-shard-b:
+    <<: *shard
+    container_name: database_shard_b
+    ports:
+      - "5435:5432"
+
+  api-1: *api-sharding
+  api-2: *api-sharding
+  api-3: *api-sharding

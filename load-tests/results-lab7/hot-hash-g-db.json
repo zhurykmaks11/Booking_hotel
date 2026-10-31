@@ -1,0 +1,29 @@
+﻿{
+    "name":  "hot-hash-g",
+    "durationSec":  388.1,
+    "commits":  68630,
+    "rollbacks":  0,
+    "tuplesReturned":  77243,
+    "tuplesFetched":  71635,
+    "tuplesInserted":  100,
+    "commitsPerSec":  176.8,
+    "rollbacksPerSec":  0,
+    "replicaCommits":  514,
+    "replicaCommitsPerSec":  1.3,
+    "replicaTuplesReturned":  172,
+    "shards":  {
+                   "database_shard_a":  {
+                                            "commits":  89571,
+                                            "commitsPerSec":  230.8,
+                                            "writes":  59386,
+                                            "tuplesReturned":  161300
+                                        },
+                   "database_shard_b":  {
+                                            "commits":  115064,
+                                            "commitsPerSec":  296.5,
+                                            "writes":  76529,
+                                            "tuplesReturned":  199965
+                                        }
+               },
+    "shardTopology":  "2 shard(s), strategy=hash"
+}

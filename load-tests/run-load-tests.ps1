@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Навантажувальне тестування Booking_Hotel (Лаб. №5, №6): k6 у Docker + збір метрик середовища.
+    Навантажувальне тестування Booking_Hotel (Лаб. №5, №6, №7): k6 у Docker + збір метрик середовища.
 
 .DESCRIPTION
     Експерименти:
@@ -10,6 +10,12 @@
       replication — Лаб. №6: Single Primary vs Primary + Replica (Read Scaling Impact) для сценаріїв
                   -ReplicationScenarios (за замовчуванням D — mixed, A — read); Redis вимкнено,
                   CPU кожного вузла СУБД обмежено до -DbCpus, щоб вузьким місцем була саме СУБД
+      sharding  — Лаб. №7 (результати в results-lab7/), порівняння з -ShardRuns:
+                    local  — сценарій E (Shard-Local) на 1 і на 2 шардах;
+                    fanout — сценарій F (Cross-Shard Fan-out) на 1 і на 2 шардах;
+                    hot    — сценарій G (Hot Shard) зі стратегією city і зі стратегією hash.
+                  Перед кожним прогоном шарди перестворюються порожніми, Redis вимкнено,
+                  CPU кожного шарду обмежено до -DbCpus
       single    — один прогін вибраного сценарію (для демонстрації на захисті)
       all       — baseline + scaling + caching
 
@@ -23,17 +29,24 @@
     powershell -ExecutionPolicy Bypass -File load-tests/run-load-tests.ps1 -Experiment all -ApplyLimits
     powershell -ExecutionPolicy Bypass -File load-tests/run-load-tests.ps1 -Experiment single -Scenario c -Hold 20
     powershell -ExecutionPolicy Bypass -File load-tests/run-load-tests.ps1 -Experiment replication -ApplyLimits
+    powershell -ExecutionPolicy Bypass -File load-tests/run-load-tests.ps1 -Experiment sharding -ApplyLimits
 #>
 param(
-    [ValidateSet('baseline', 'scaling', 'caching', 'replication', 'single', 'all')]
+    [ValidateSet('baseline', 'scaling', 'caching', 'replication', 'sharding', 'single', 'all')]
     [string]$Experiment = 'baseline',
 
-    [ValidateSet('a', 'b', 'c', 'd')]
+    [ValidateSet('a', 'b', 'c', 'd', 'e', 'f', 'g')]
     [string]$Scenario = 'a',
 
     # Лаб. №6: сценарії для експерименту replication і ліміт CPU кожного вузла СУБД на час експерименту
     [string]$ReplicationScenarios = 'd,a',
     [string]$DbCpus = '0.25',
+
+    # Лаб. №7: які порівняння виконати в експерименті sharding і обсяг тестових даних
+    [string]$ShardRuns = 'local,fanout,hot',
+    [int]$SeedHotels = 40,
+    [int]$SeedBookings = 2000,
+    [string]$SeedCityWeights = 'Kyiv:40,Lviv:20,Odesa:15,Kharkiv:15,Chernivtsi:10',
 
     [string]$Levels = '10,25,50,100,200',
     [int]$Hold = 60,
@@ -59,19 +72,37 @@ Add-Type -Namespace Win32 -Name Power -MemberDefinition '[DllImport("kernel32.dl
 [Win32.Power]::SetThreadExecutionState([uint32]'0x80000003') | Out-Null   # ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path      # ...\backend\load-tests
 $Backend = Split-Path -Parent $Root                            # ...\backend
-$Results = Join-Path $Root 'results'
+$ResultsDirName = 'results'
+if ($Experiment -eq 'sharding') { $ResultsDirName = 'results-lab7' }
+$Results = Join-Path $Root $ResultsDirName
 New-Item -ItemType Directory -Force -Path $Results | Out-Null
+
+# nginx.conf перезаписується під час перемикання топологій — наприкінці повертаємо оригінал
+$NginxConf = Join-Path $Backend 'nginx.conf'
+$OriginalNginx = [IO.File]::ReadAllText($NginxConf)
 
 $PrimaryDb = 'database_primary'
 $ReplicaDb = 'database_replica'
 # Single Primary Topology (Лаб. №6): API запускається без DATABASE_REPLICA_URL
 $script:SingleDb = $false
+# Sharded Topology (Лаб. №7): docker-compose.sharding.yml; OneShard — усі бакети на shard-a
+$script:Sharding = $false
+$script:OneShard = $false
+$script:ShardLabel = ''
+$ShardContainers = @('database_shard_a', 'database_shard_b')
+# Обсяг тестових даних k6 (для sharding задається параметрами -Seed*)
+$script:SeedHotelsNow = 20
+$script:SeedBookingsNow = 0
+$script:SeedCityWeightsNow = ''
 
 $ScenarioFiles = @{
     a = 'scenario-a-read.js'
     b = 'scenario-b-write.js'
     c = 'scenario-c-workflow.js'
     d = 'scenario-d-mixed.js'
+    e = 'scenario-e-shard-local.js'
+    f = 'scenario-f-cross-shard.js'
+    g = 'scenario-g-hot-shard.js'
 }
 
 function Write-Step([string]$Text) {
@@ -85,6 +116,11 @@ function Invoke-Compose([string[]]$ComposeArgs) {
         $files = @('-f', 'docker-compose.yml')
         if ($ApplyLimits) { $files += @('-f', 'load-tests/docker-compose.loadtest.yml') }
         if ($script:SingleDb) { $files += @('-f', 'load-tests/docker-compose.single-db.yml') }
+        if ($script:Sharding) {
+            $files += @('-f', 'docker-compose.sharding.yml')
+            if ($ApplyLimits) { $files += @('-f', 'load-tests/docker-compose.sharding-loadtest.yml') }
+            if ($script:OneShard) { $files += @('-f', 'load-tests/docker-compose.one-shard.yml') }
+        }
         & docker compose @files @ComposeArgs
         if ($LASTEXITCODE -ne 0) { throw "docker compose $($ComposeArgs -join ' ') завершився з помилкою" }
     }
@@ -163,10 +199,10 @@ function Set-DbTopology([bool]$WithReplica) {
 }
 
 function Get-DbCounters([string]$Container = $PrimaryDb) {
-    $q = "select xact_commit, xact_rollback, tup_returned, tup_fetched, tup_inserted from pg_stat_database where datname = 'hotel_booking'"
+    $q = "select xact_commit, xact_rollback, tup_returned, tup_fetched, tup_inserted, tup_updated, tup_deleted from pg_stat_database where datname = 'hotel_booking'"
     $line = docker exec $Container psql -U postgres -d hotel_booking -tAc $q 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $line) {
-        return [pscustomobject]@{ commit = 0; rollback = 0; returned = 0; fetched = 0; inserted = 0 }
+        return [pscustomobject]@{ commit = 0; rollback = 0; returned = 0; fetched = 0; inserted = 0; updated = 0; deleted = 0 }
     }
     $p = ($line | Out-String).Trim() -split '\|'
     return [pscustomobject]@{
@@ -175,6 +211,8 @@ function Get-DbCounters([string]$Container = $PrimaryDb) {
         returned = [int64]$p[2]
         fetched  = [int64]$p[3]
         inserted = [int64]$p[4]
+        updated  = [int64]$p[5]
+        deleted  = [int64]$p[6]
     }
 }
 
@@ -238,6 +276,8 @@ function Invoke-K6([string]$Name, [string]$ScenarioKey) {
 
     $before = Get-DbCounters $PrimaryDb
     $beforeReplica = Get-DbCounters $ReplicaDb
+    $beforeShards = @{}
+    if ($script:Sharding) { foreach ($c in $ShardContainers) { $beforeShards[$c] = Get-DbCounters $c } }
     $sw = [Diagnostics.Stopwatch]::StartNew()
 
     $dockerArgs = @(
@@ -254,8 +294,12 @@ function Invoke-K6([string]$Name, [string]$ScenarioKey) {
         '-e', "RAMP=$Ramp",
         '-e', "WARMUP=$Warmup",
         '-e', "THINK=$Think",
+        '-e', "RESULTS_DIR=$ResultsDirName",
+        '-e', "SEED_HOTELS=$($script:SeedHotelsNow)",
+        '-e', "SEED_BOOKINGS=$($script:SeedBookingsNow)",
+        '-e', "SEED_CITY_WEIGHTS=$($script:SeedCityWeightsNow)",
         '-e', 'K6_WEB_DASHBOARD=true',
-        '-e', "K6_WEB_DASHBOARD_EXPORT=results/$Name-dashboard.html",
+        '-e', "K6_WEB_DASHBOARD_EXPORT=$ResultsDirName/$Name-dashboard.html",
         $K6Image, 'run', $script
     )
     try {
@@ -284,6 +328,22 @@ function Invoke-K6([string]$Name, [string]$ScenarioKey) {
         replicaCommits    = $afterReplica.commit - $beforeReplica.commit
         replicaCommitsPerSec = [math]::Round(($afterReplica.commit - $beforeReplica.commit) / $seconds, 1)
         replicaTuplesReturned = $afterReplica.returned - $beforeReplica.returned
+    }
+    if ($script:Sharding) {
+        # Лаб. №7: транзакції і записи (insert + update + delete) на кожному шарді за прогін
+        $shardStats = [ordered]@{}
+        foreach ($c in $ShardContainers) {
+            $a = Get-DbCounters $c
+            $b = $beforeShards[$c]
+            $shardStats[$c] = [ordered]@{
+                commits        = $a.commit - $b.commit
+                commitsPerSec  = [math]::Round(($a.commit - $b.commit) / $seconds, 1)
+                writes         = ($a.inserted - $b.inserted) + ($a.updated - $b.updated) + ($a.deleted - $b.deleted)
+                tuplesReturned = $a.returned - $b.returned
+            }
+        }
+        $db['shards'] = $shardStats
+        $db['shardTopology'] = $script:ShardLabel
     }
     $db | ConvertTo-Json | Set-Content -Path (Join-Path $Results "$Name-db.json") -Encoding UTF8
     Write-Host ("PostgreSQL Primary за прогін: {0} commit ({1}/с), {2} rollback; Replica: {3} commit ({4}/с)" -f $db.commits, $db.commitsPerSec, $db.rollbacks, $db.replicaCommits, $db.replicaCommitsPerSec) -ForegroundColor DarkGray
@@ -339,6 +399,58 @@ function Invoke-Replication {
     }
 }
 
+function Wait-Shards([int]$TimeoutSec = 90) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        $ready = $ShardContainers | Where-Object { (docker inspect $_ --format '{{.State.Health.Status}}' 2>$null) -eq 'healthy' }
+        if (@($ready).Count -eq $ShardContainers.Count) { return }
+        Start-Sleep -Seconds 2
+    }
+    throw 'Шарди не стали healthy. Перевірте docker compose ps.'
+}
+
+function Set-ShardTopology([int]$Shards, [string]$Strategy, [string]$Cpus = $DbCpus) {
+    # Свіжі порожні шарди (--renew-anon-volumes); API перестворюється з новими SHARD_URLS / SHARD_STRATEGY
+    # і при старті накатує міграції на шарди (docker/api/entrypoint.sh)
+    $env:SHARD_STRATEGY = $Strategy
+    $script:Sharding = $true
+    $script:OneShard = ($Shards -eq 1)
+    $script:ShardLabel = "$Shards shard(s), strategy=$Strategy"
+    Invoke-Compose @('up', '-d', '--force-recreate', '--renew-anon-volumes', 'db-shard-a', 'db-shard-b') | Out-Null
+    Wait-Shards
+    docker update --cpus $Cpus $ShardContainers | Out-Null
+    Invoke-Compose @('up', '-d', '--no-deps', '--force-recreate', 'api-1', 'api-2', 'api-3') | Out-Null
+    Start-Sleep -Seconds 15
+    Set-Nginx 'roundrobin'   # reload: nginx заново резолвить IP перестворених контейнерів
+    Wait-Healthy 120
+    Write-Host "Топологія: $script:ShardLabel, CPU кожного шарду $Cpus" -ForegroundColor DarkGray
+}
+
+function Invoke-Sharding {
+    # Redis вимкнено (як у Лаб. №6): кожне читання доходить до шардів.
+    # Глобальний вузол (гості) не обмежується -DbCpus — він не є предметом порівняння.
+    Set-Topology 3
+    Set-Redis $false
+    $script:SeedHotelsNow = $SeedHotels
+    $script:SeedCityWeightsNow = $SeedCityWeights
+    $runs = $ShardRuns -split ',' | ForEach-Object { $_.Trim() }
+    if ($runs -contains 'local') {
+        $script:SeedBookingsNow = 0
+        Set-ShardTopology 1 'hash'; Invoke-K6 'shard1-e-local' 'e'
+        Set-ShardTopology 2 'hash'; Invoke-K6 'shard2-e-local' 'e'
+    }
+    if ($runs -contains 'fanout') {
+        $script:SeedBookingsNow = $SeedBookings
+        Set-ShardTopology 1 'hash'; Invoke-K6 'shard1-f-fanout' 'f'
+        Set-ShardTopology 2 'hash'; Invoke-K6 'shard2-f-fanout' 'f'
+    }
+    if ($runs -contains 'hot') {
+        $script:SeedBookingsNow = 0
+        Set-ShardTopology 2 'city'; Invoke-K6 'hot-city-g' 'g'
+        Set-ShardTopology 2 'hash'; Invoke-K6 'hot-hash-g' 'g'
+    }
+}
+
 # ------------------------------------------------------------------
 Write-Step "Підготовка (експеримент: $Experiment)"
 if ($ApplyLimits) {
@@ -354,6 +466,7 @@ try {
         'scaling' { Invoke-Scaling }
         'caching' { Invoke-Caching }
         'replication' { Invoke-Replication }
+        'sharding' { Invoke-Sharding }
         'single' { Set-Topology 3; Set-Redis $true; Invoke-K6 "single-$Scenario" $Scenario }
         'all' { Invoke-Baseline; Invoke-Scaling; Invoke-Caching }
     }
@@ -362,10 +475,18 @@ finally {
     # Повертаємо кластер у робочий стан: 3 інстанси, Round Robin, Redis увімкнено, читання з Replica
     Write-Step 'Відновлення робочої конфігурації'
     if ($script:SingleDb) { try { Set-DbTopology $true } catch { Write-Warning $_ } }
+    # Лаб. №7: лишаємо шардований кластер (2 шарди, hash, CPU як у compose) для демонстрацій
+    if ($script:Sharding) { try { Set-ShardTopology 2 'hash' '1' } catch { Write-Warning $_ } }
     try { Set-Redis $true } catch { Write-Warning $_ }
     try { Set-Topology 3 } catch { Write-Warning $_ }
+    try {
+        [IO.File]::WriteAllText($NginxConf, $OriginalNginx)
+        docker exec hotel_booking_nginx nginx -s reload | Out-Null
+    }
+    catch { Write-Warning $_ }
 }
 
 Write-Step 'Зведений звіт'
-node (Join-Path $Root 'report.js')
+if ($Experiment -eq 'sharding') { node (Join-Path $Root 'report-sharding.js') }
+else { node (Join-Path $Root 'report.js') }
 Write-Host "Готово. Результати: $Results" -ForegroundColor Green

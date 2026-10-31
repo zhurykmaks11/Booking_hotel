@@ -31,6 +31,9 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
+# Міграції глобального вузла і всіх шардів (SHARD_URLS, Лаб. №7), потім застосунок
+COPY docker/api/entrypoint.sh ./docker/entrypoint.sh
+
 EXPOSE 3000
 
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]
+CMD ["sh", "docker/entrypoint.sh"]

@@ -1,0 +1,29 @@
+﻿{
+    "name":  "hot-city-g",
+    "durationSec":  388.2,
+    "commits":  46914,
+    "rollbacks":  0,
+    "tuplesReturned":  55733,
+    "tuplesFetched":  50128,
+    "tuplesInserted":  103,
+    "commitsPerSec":  120.9,
+    "rollbacksPerSec":  0,
+    "replicaCommits":  514,
+    "replicaCommitsPerSec":  1.3,
+    "replicaTuplesReturned":  172,
+    "shards":  {
+                   "database_shard_a":  {
+                                            "commits":  132165,
+                                            "commitsPerSec":  340.5,
+                                            "writes":  87856,
+                                            "tuplesReturned":  222600
+                                        },
+                   "database_shard_b":  {
+                                            "commits":  7342,
+                                            "commitsPerSec":  18.9,
+                                            "writes":  4719,
+                                            "tuplesReturned":  315025
+                                        }
+               },
+    "shardTopology":  "2 shard(s), strategy=city"
+}

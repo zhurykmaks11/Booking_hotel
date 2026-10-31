@@ -1,0 +1,55 @@
+{
+  "iterations": 200,
+  "cache": "off",
+  "rows": [
+    {
+      "endpoint": "GET /rooms/:id",
+      "type": "Shard-Local",
+      "shards": 1,
+      "p50": 4.0079,
+      "p95": 4.8492,
+      "avg": 4.031232000000002
+    },
+    {
+      "endpoint": "GET /bookings/:id",
+      "type": "Shard-Local",
+      "shards": 1,
+      "p50": 5.4692,
+      "p95": 6.4594,
+      "avg": 5.522214499999998
+    },
+    {
+      "endpoint": "GET /sharding/analytics/hotels/:id",
+      "type": "Shard-Local",
+      "shards": 1,
+      "p50": 3.2323,
+      "p95": 4.2056,
+      "avg": 4.399872500000002
+    },
+    {
+      "endpoint": "GET /guests/:id/bookings",
+      "type": "Cross-Shard",
+      "shards": 2,
+      "p50": 5.7623,
+      "p95": 8.198,
+      "avg": 6.037164500000001
+    },
+    {
+      "endpoint": "GET /rooms/search",
+      "type": "Cross-Shard",
+      "shards": 2,
+      "p50": 14.2638,
+      "p95": 30.4351,
+      "avg": 16.781111499999998
+    },
+    {
+      "endpoint": "GET /sharding/analytics/cities",
+      "type": "Cross-Shard",
+      "shards": 2,
+      "p50": 4.6524,
+      "p95": 5.5427,
+      "avg": 4.710356499999997
+    }
+  ],
+  "measuredAt": "2026-10-31T20:15:49.451Z"
+}

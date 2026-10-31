@@ -1,0 +1,12 @@
+# Лаб. №7, п. 2.6: Single Database Node Topology для порівняння з шардованим кластером.
+# Той самий код і той самий Shard Router, але в SHARD_URLS лише один вузол (shard-a):
+# усі 64 бакети → один PostgreSQL. Shard B працює, але трафіку не отримує.
+# Так порівнюються саме 1 vs 2 вузли СУБД на однаково свіжих даних.
+x-one-shard: &one-shard
+  environment:
+    SHARD_URLS: "postgresql://postgres:postgres@db-shard-a:5432/hotel_booking?schema=public&connect_timeout=2&connection_limit=10&pool_timeout=10"
+
+services:
+  api-1: *one-shard
+  api-2: *one-shard
+  api-3: *one-shard
