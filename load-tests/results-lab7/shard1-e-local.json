@@ -1,0 +1,103 @@
+{
+  "name": "shard1-e-local",
+  "scenario": "E",
+  "title": "Scenario E — Shard-Local операції",
+  "finishedAt": "2026-10-31T20:23:51.416Z",
+  "config": {
+    "BASE_URL": "http://nginx",
+    "LEVELS": [
+      10,
+      25,
+      50,
+      100,
+      200
+    ],
+    "WARMUP": 30,
+    "WARMUP_VUS": 5,
+    "RAMP": 10,
+    "HOLD": 60,
+    "THINK": 0.1
+  },
+  "rows": [
+    {
+      "vus": 10,
+      "requests": 7135,
+      "rps": 118.91666666666667,
+      "iterationsPerSec": 91.28333333333333,
+      "avg": 6.506506375613181,
+      "p50": 4.538676,
+      "p95": 11.9847271,
+      "p99": 54.804326119999686,
+      "max": 174.190682,
+      "errorRate": 0,
+      "errors5xx": 0,
+      "conflicts409": 0,
+      "networkErrors": 0,
+      "cacheHitRate": 0
+    },
+    {
+      "vus": 25,
+      "requests": 16991,
+      "rps": 283.18333333333334,
+      "iterationsPerSec": 218.01666666666668,
+      "avg": 10.547105230416085,
+      "p50": 4.718886,
+      "p95": 58.526664,
+      "p99": 100.94845349999999,
+      "max": 299.023785,
+      "errorRate": 0,
+      "errors5xx": 0,
+      "conflicts409": 0,
+      "networkErrors": 0,
+      "cacheHitRate": 0
+    },
+    {
+      "vus": 50,
+      "requests": 15407,
+      "rps": 256.78333333333336,
+      "iterationsPerSec": 198.06666666666666,
+      "avg": 116.75634717362287,
+      "p50": 95.137594,
+      "p95": 302.7511904999999,
+      "p99": 501.6861720000004,
+      "max": 1652.996585,
+      "errorRate": 0,
+      "errors5xx": 0,
+      "conflicts409": 1,
+      "networkErrors": 0,
+      "cacheHitRate": 0
+    },
+    {
+      "vus": 100,
+      "requests": 14529,
+      "rps": 242.15,
+      "iterationsPerSec": 185.21666666666667,
+      "avg": 337.20923861435915,
+      "p50": 299.363631,
+      "p95": 793.4471821999999,
+      "p99": 1008.1430841999995,
+      "max": 2002.745795,
+      "errorRate": 0,
+      "errors5xx": 0,
+      "conflicts409": 0,
+      "networkErrors": 0,
+      "cacheHitRate": 0
+    },
+    {
+      "vus": 200,
+      "requests": 13259,
+      "rps": 220.98333333333332,
+      "iterationsPerSec": 170,
+      "avg": 823.3709035717617,
+      "p50": 714.089509,
+      "p95": 1892.3586355999996,
+      "p99": 2412.2152293,
+      "max": 3398.456954,
+      "errorRate": 0,
+      "errors5xx": 0,
+      "conflicts409": 1,
+      "networkErrors": 0,
+      "cacheHitRate": 0
+    }
+  ]
+}

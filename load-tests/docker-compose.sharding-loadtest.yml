@@ -1,0 +1,20 @@
+# Лаб. №7, п. 2.6: ліміти і пули з'єднань для шардів під час навантажувального тестування.
+# Підключається після docker-compose.sharding.yml (і load-tests/docker-compose.loadtest.yml):
+#   docker compose -f docker-compose.yml -f load-tests/docker-compose.loadtest.yml \
+#                  -f docker-compose.sharding.yml -f load-tests/docker-compose.sharding-loadtest.yml up -d
+# CPU шардів скрипт run-load-tests.ps1 додатково обмежує до -DbCpus (docker update),
+# щоб вузьким місцем були саме вузли СУБД, а не API.
+x-api-pool: &api-pool
+  environment:
+    SHARD_URLS: "postgresql://postgres:postgres@db-shard-a:5432/hotel_booking?schema=public&connect_timeout=2&connection_limit=10&pool_timeout=10,postgresql://postgres:postgres@db-shard-b:5432/hotel_booking?schema=public&connect_timeout=2&connection_limit=10&pool_timeout=10"
+
+services:
+  db-shard-a:
+    cpus: "1.0"
+    mem_limit: 1g
+  db-shard-b:
+    cpus: "1.0"
+    mem_limit: 1g
+  api-1: *api-pool
+  api-2: *api-pool
+  api-3: *api-pool

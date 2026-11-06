@@ -2,6 +2,7 @@ import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { DbRouter } from '../database/db-router.service';
+import { ShardRouter } from '../sharding/shard-router.service';
 import { CacheService } from '../cache/cache.service';
 import * as os from 'os';
 
@@ -13,6 +14,7 @@ export class HealthController {
 
     constructor(
         private readonly db: DbRouter,
+        private readonly shards: ShardRouter,
         private readonly cache: CacheService,
     ) {}
 
@@ -33,8 +35,9 @@ export class HealthController {
     @ApiResponse({ status: 503, description: 'Сервіс недоступний (немає жодного вузла БД)' })
     async checkHealth(@Res() res: Response) {
         const start = Date.now();
-        // Активна перевірка Primary і Replica (оновлює стан маршрутизатора)
-        const db = await this.db.checkHealth();
+        // Активна перевірка Primary і Replica (оновлює стан маршрутизатора) і шардів (Лаб. №7)
+        const [db, shards] = await Promise.all([this.db.checkHealth(), this.shards.checkHealth()]);
+        const shardDown = this.shards.sharded && shards.some((s) => !s.healthy);
 
         const dbResponseMs = Date.now() - start;
         const uptimeSec = Math.floor((Date.now() - this.startTime) / 1000);
@@ -43,13 +46,17 @@ export class HealthController {
         const isHealthy = db.mode !== 'unavailable';
 
         const payload = {
-            status: !isHealthy ? 'DOWN' : !primaryUp || replicaDown ? 'DEGRADED' : 'UP',
+            // Недоступний шард = DEGRADED, а не DOWN: ключі інших шардів обслуговуються (ізоляція збою)
+            status: !isHealthy ? 'DOWN' : !primaryUp || replicaDown || shardDown ? 'DEGRADED' : 'UP',
             instanceId: this.instanceId,
             database: primaryUp ? 'CONNECTED' : 'DISCONNECTED',
             dbMode: db.mode,
             dbTopology: db.topology,
             readsFrom: db.readsFrom,
             replica: db.topology === 'primary+replica' ? (replicaDown ? 'DISCONNECTED' : 'CONNECTED') : 'DISABLED',
+            shards: this.shards.sharded
+                ? Object.fromEntries(shards.map((s) => [s.shard, s.healthy ? 'CONNECTED' : 'DISCONNECTED']))
+                : 'DISABLED',
             dbResponseMs: `${dbResponseMs}ms`,
             uptime: `${uptimeSec}s`,
             timestamp: new Date().toISOString(),

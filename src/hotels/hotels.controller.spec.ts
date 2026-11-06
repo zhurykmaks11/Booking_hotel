@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { HotelsController } from './hotels.controller';
 import { HotelsService } from './hotels.service';
 import { DbRouter } from '../database/db-router.service';
+import { ShardRouter } from '../sharding/shard-router.service';
 import { CacheService } from '../cache/cache.service';
 
 describe('HotelsController', () => {
@@ -10,7 +11,7 @@ describe('HotelsController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [HotelsController],
-      providers: [HotelsService, { provide: DbRouter, useValue: {} }, { provide: CacheService, useValue: {} }],
+      providers: [HotelsService, { provide: DbRouter, useValue: {} }, { provide: ShardRouter, useValue: {} }, { provide: CacheService, useValue: {} }],
     }).compile();
 
     controller = module.get<HotelsController>(HotelsController);

@@ -1,0 +1,27 @@
+{
+  "strategy": "hash",
+  "total": 2000,
+  "concurrency": 30,
+  "hotCity": "Kyiv",
+  "cpus": "0.25",
+  "throughput": 301.4318010550113,
+  "cpu": "database_shard_a 18.45%   database_shard_b 25.62%",
+  "rows": [
+    {
+      "shard": "shard-a",
+      "requests": 978,
+      "writePercent": 47.98407167745147,
+      "p50": 58.3014,
+      "p95": 176.1412,
+      "p99": 211.2123
+    },
+    {
+      "shard": "shard-b",
+      "requests": 1022,
+      "writePercent": 52.01592832254853,
+      "p50": 101.0247,
+      "p95": 297.2633,
+      "p99": 399.1224
+    }
+  ]
+}

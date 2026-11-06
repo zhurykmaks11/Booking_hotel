@@ -29,6 +29,7 @@ model Hotel {
   rooms     Room[]
   createdAt DateTime @default(now())
 
+  @@index([city])
   @@map("hotels")
 }
 
@@ -52,7 +53,6 @@ model Guest {
   fullName  String
   email     String    @unique
   phone     String?
-  bookings  Booking[]
   createdAt DateTime  @default(now())
 
   @@map("guests")
@@ -62,7 +62,8 @@ model Booking {
   id           String        @id @default(uuid())
   room         Room          @relation(fields: [roomId], references: [id])
   roomId       String
-  guest        Guest         @relation(fields: [guestId], references: [id])
+  // Лаб. №7: гості — глобальний довідник, бронювання — на шардах готелів.
+  // Зовнішній ключ між різними вузлами неможливий, цілісність перевіряє застосунок.
   guestId      String
   checkInDate  DateTime
   checkOutDate DateTime
@@ -71,5 +72,6 @@ model Booking {
   createdAt    DateTime      @default(now())
 
   @@index([roomId, checkInDate, checkOutDate])
+  @@index([guestId])
   @@map("bookings")
 }

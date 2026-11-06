@@ -1,16 +1,18 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
-import { Consistency, DbRouter } from '../database/db-router.service';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Consistency } from '../database/db-router.service';
+import { ShardRouter } from '../sharding/shard-router.service';
+import { bucketOf } from '../sharding/shard-key';
 import { CacheService } from '../cache/cache.service';
 import { CacheKeys, CacheTtl } from '../cache/cache-keys';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { UpdateRoomDto } from './dto/update-room.dto';
 import { SearchRoomDto } from './dto/search-room.dto';
-import { BookingStatus } from '@prisma/client';
+import { BookingStatus, PrismaClient } from '@prisma/client';
 
 @Injectable()
 export class RoomsService {
     constructor(
-        private readonly db: DbRouter,
+        private readonly shards: ShardRouter,
         private readonly cache: CacheService,
     ) {}
 
@@ -22,8 +24,12 @@ export class RoomsService {
     }
 
     async create(createRoomDto: CreateRoomDto) {
+        // Лаб. №7: номер живе на шарді свого готелю (co-location агрегату), тож перевірки
+        // існування готелю й унікальності (hotelId, roomNumber) — локальні для одного шарду.
+        const shard = this.shards.forKey(createRoomDto.hotelId);
+
         // Перевірки перед записом — STRONG (Primary): готель міг бути створений щойно
-        const hotel = await this.db.read(
+        const hotel = await shard.read(
             (db) => db.hotel.findUnique({ where: { id: createRoomDto.hotelId } }),
             Consistency.STRONG,
         );
@@ -31,7 +37,7 @@ export class RoomsService {
             throw new NotFoundException(`Hotel with id ${createRoomDto.hotelId} not found`);
         }
 
-        const existing = await this.db.read(
+        const existing = await shard.read(
             (db) =>
                 db.room.findUnique({
                     where: {
@@ -49,18 +55,20 @@ export class RoomsService {
             );
         }
 
-        const room = await this.db.write((db) => db.room.create({ data: createRoomDto }));
+        // ID номера в тому ж бакеті, що й готель: GET /rooms/:id маршрутизується без пошуку
+        const id = this.shards.childId(createRoomDto.hotelId);
+        const room = await shard.write((db) => db.room.create({ data: { id, ...createRoomDto } }));
         await this.invalidateForRooms(room.hotelId);
         return room;
     }
 
-    /** Публічний каталог номерів: eventual → Replica. */
+    /** Публічний каталог номерів: Cross-Shard fan-out (готель підтягується локально на кожному шарді). */
     findAll() {
-        return this.db.read((db) => db.room.findMany({ include: { hotel: true } }));
+        return this.shards.fanOutList((db) => db.room.findMany({ include: { hotel: true } }), { allowPartial: true });
     }
 
     async findOne(id: string, consistency = Consistency.EVENTUAL) {
-        const room = await this.db.read(
+        const room = await this.shards.forKey(id).read(
             (db) => db.room.findUnique({ where: { id }, include: { hotel: true } }),
             consistency,
         );
@@ -90,36 +98,46 @@ export class RoomsService {
      * Endpoint #4: пошук вільних номерів (читання напряму з БД).
      * Eventual: застарілий результат безпечний — доступність остаточно перевіряється
      * в Serializable-транзакції на Primary під час бронювання (у гіршому разі 409).
+     *
+     * Лаб. №7: пошук за містом не містить ключа шардингу (hotelId), тому це Cross-Shard
+     * fan-out: той самий запит паралельно на всіх шардах, результати зливаються.
+     * Виняток — стратегія city: усі готелі міста на одному шарді (Query Locality), запит локальний.
      */
     async search(dto: SearchRoomDto, consistency = Consistency.EVENTUAL) {
         const checkIn = new Date(dto.checkIn);
         const checkOut = new Date(dto.checkOut);
 
-        return this.db.read(
-            (db) =>
-                db.room.findMany({
-                    where: {
-                        capacity: dto.guests ? { gte: dto.guests } : undefined,
-                        hotel: dto.city ? { city: dto.city } : undefined,
-                        bookings: {
-                            none: {
-                                status: { in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
-                                AND: [
-                                    { checkInDate: { lt: checkOut } },
-                                    { checkOutDate: { gt: checkIn } },
-                                ],
-                            },
+        const query = (db: PrismaClient) =>
+            db.room.findMany({
+                where: {
+                    capacity: dto.guests ? { gte: dto.guests } : undefined,
+                    hotel: dto.city ? { city: dto.city } : undefined,
+                    bookings: {
+                        none: {
+                            status: { in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
+                            AND: [
+                                { checkInDate: { lt: checkOut } },
+                                { checkOutDate: { gt: checkIn } },
+                            ],
                         },
                     },
-                    include: { hotel: true },
-                }),
-            consistency,
-        );
+                },
+                include: { hotel: true },
+            });
+
+        const local = dto.city ? this.shards.shardForCity(dto.city) : null;
+        if (local) return local.read(query, consistency);
+        return this.shards.fanOutList(query, { allowPartial: true, consistency });
     }
 
     async update(id: string, updateRoomDto: UpdateRoomDto) {
+        // Ключ шардингу незмінний: номер не може «переїхати» в готель з іншого бакета —
+        // його бронювання опинилися б не на тому шарді. Такий перенос = новий номер + міграція.
+        if (updateRoomDto.hotelId && bucketOf(updateRoomDto.hotelId) !== bucketOf(id)) {
+            throw new BadRequestException('Room cannot be moved to a hotel in another shard bucket');
+        }
         const before = await this.findOne(id, Consistency.STRONG);
-        const room = await this.db.write((db) =>
+        const room = await this.shards.forKey(id).write((db) =>
             db.room.update({
                 where: { id },
                 data: updateRoomDto,
@@ -132,7 +150,7 @@ export class RoomsService {
 
     async remove(id: string) {
         await this.findOne(id, Consistency.STRONG);
-        const room = await this.db.write((db) => db.room.delete({ where: { id } }));
+        const room = await this.shards.forKey(id).write((db) => db.room.delete({ where: { id } }));
         await this.invalidateForRooms(room.hotelId);
         return room;
     }

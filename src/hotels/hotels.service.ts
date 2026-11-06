@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Consistency, DbRouter } from '../database/db-router.service';
+import { Consistency } from '../database/db-router.service';
+import { ShardRouter } from '../sharding/shard-router.service';
 import { CacheService } from '../cache/cache.service';
 import { CacheKeys, CacheTtl } from '../cache/cache-keys';
 import { CreateHotelDto } from './dto/create-hotel.dto';
@@ -8,18 +9,26 @@ import { UpdateHotelDto } from './dto/update-hotel.dto';
 @Injectable()
 export class HotelsService {
     constructor(
-        private readonly db: DbRouter,
+        private readonly shards: ShardRouter,
         private readonly cache: CacheService,
     ) {}
 
+    /**
+     * Лаб. №7: ID готелю генерує застосунок — у ньому закодовано бакет (див. shard-key.ts),
+     * тому готель одразу пишеться на свій шард, а всі подальші запити знаходять його за ID.
+     */
     create(createHotelDto: CreateHotelDto) {
         // Новий готель ще не має номерів, тому на результати пошуку не впливає.
-        return this.db.write((db) => db.hotel.create({ data: createHotelDto }));
+        const id = this.shards.newHotelId(createHotelDto.city);
+        return this.shards.forKey(id).write((db) => db.hotel.create({ data: { id, ...createHotelDto } }));
     }
 
-    /** Публічний каталог готелів: eventual consistency → Replica. */
+    /**
+     * Публічний каталог готелів: Cross-Shard fan-out (готелі розкидані по шардах).
+     * Недоступний шард не ламає каталог — повертаються готелі решти шардів (X-Shard-Partial).
+     */
     findAll() {
-        return this.db.read((db) => db.hotel.findMany());
+        return this.shards.fanOutList((db) => db.hotel.findMany(), { allowPartial: true });
     }
 
     /**
@@ -27,7 +36,8 @@ export class HotelsService {
      * Перед записом — STRONG: на Replica щойно створений готель може ще не з'явитися.
      */
     async findOne(id: string, consistency = Consistency.EVENTUAL) {
-        const hotel = await this.db.read(
+        // Shard-Local: готель і його номери лежать на одному шарді — include (JOIN) працює локально
+        const hotel = await this.shards.forKey(id).read(
             (db) => db.hotel.findUnique({ where: { id }, include: { rooms: true } }),
             consistency,
         );
@@ -55,7 +65,7 @@ export class HotelsService {
 
     async update(id: string, updateHotelDto: UpdateHotelDto) {
         await this.findOne(id, Consistency.STRONG);
-        const hotel = await this.db.write((db) =>
+        const hotel = await this.shards.forKey(id).write((db) =>
             db.hotel.update({
                 where: { id },
                 data: updateHotelDto,
@@ -69,7 +79,7 @@ export class HotelsService {
 
     async remove(id: string) {
         await this.findOne(id, Consistency.STRONG);
-        const hotel = await this.db.write((db) => db.hotel.delete({ where: { id } }));
+        const hotel = await this.shards.forKey(id).write((db) => db.hotel.delete({ where: { id } }));
         await this.cache.invalidate(CacheKeys.hotel(id));
         await this.cache.bumpVersion(CacheKeys.searchVersion);
         return hotel;

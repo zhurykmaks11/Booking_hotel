@@ -1,0 +1,41 @@
+{
+  "strategy": "city",
+  "shards": [
+    {
+      "shard": "shard-a",
+      "hotels": 140,
+      "rooms": 700,
+      "bookings": 1422,
+      "records": 2262,
+      "writeOps": 2435,
+      "usedBuckets": 2,
+      "hotelsByCity": {
+        "Lviv": 40,
+        "Chernivtsi": 20,
+        "Kyiv": 80
+      },
+      "dataPercent": 71.1,
+      "writePercent": 72.6
+    },
+    {
+      "shard": "shard-b",
+      "hotels": 60,
+      "rooms": 300,
+      "bookings": 560,
+      "records": 920,
+      "writeOps": 919,
+      "usedBuckets": 2,
+      "hotelsByCity": {
+        "Odesa": 30,
+        "Kharkiv": 30
+      },
+      "dataPercent": 28.9,
+      "writePercent": 27.4
+    }
+  ],
+  "totals": {
+    "records": 3182,
+    "writeOps": 3354
+  },
+  "unavailable": []
+}

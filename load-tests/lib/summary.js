@@ -2,6 +2,9 @@
 // Результат: таблиця в консолі + results/<TEST_NAME>.json + results/<TEST_NAME>.md
 import { BASE_URL, HOLD, LEVELS, RAMP, TEST_NAME, THINK, WARMUP, WARMUP_VUS } from './config.js';
 
+// Каталог результатів відносно load-tests/ (Лаб. №7 пише в results-lab7)
+const RESULTS_DIR = __ENV.RESULTS_DIR || 'results';
+
 function metric(data, name, level) {
     return data.metrics[`${name}{stage:${level}}`];
 }
@@ -92,7 +95,7 @@ export function buildSummary(data, scenario, title) {
 
     return {
         stdout: consoleTable(title, rows),
-        [`results/${TEST_NAME}.json`]: JSON.stringify(result, null, 2),
-        [`results/${TEST_NAME}.md`]: md,
+        [`${RESULTS_DIR}/${TEST_NAME}.json`]: JSON.stringify(result, null, 2),
+        [`${RESULTS_DIR}/${TEST_NAME}.md`]: md,
     };
 }

@@ -1,0 +1,29 @@
+﻿{
+    "name":  "shard1-f-fanout",
+    "durationSec":  399.3,
+    "commits":  2791,
+    "rollbacks":  0,
+    "tuplesReturned":  9618,
+    "tuplesFetched":  3145,
+    "tuplesInserted":  100,
+    "commitsPerSec":  7,
+    "rollbacksPerSec":  0,
+    "replicaCommits":  24550,
+    "replicaCommitsPerSec":  61.5,
+    "replicaTuplesReturned":  26560,
+    "shards":  {
+                   "database_shard_a":  {
+                                            "commits":  135507,
+                                            "commitsPerSec":  339.4,
+                                            "writes":  2735,
+                                            "tuplesReturned":  50105239
+                                        },
+                   "database_shard_b":  {
+                                            "commits":  90,
+                                            "commitsPerSec":  0.2,
+                                            "writes":  0,
+                                            "tuplesReturned":  6739
+                                        }
+               },
+    "shardTopology":  "1 shard(s), strategy=hash"
+}

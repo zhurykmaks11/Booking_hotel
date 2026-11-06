@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BookingsService } from './bookings.service';
 import { DbRouter } from '../database/db-router.service';
+import { ShardRouter } from '../sharding/shard-router.service';
 import { CacheService } from '../cache/cache.service';
 import { CacheKeys } from '../cache/cache-keys';
 import {
@@ -9,7 +10,7 @@ import {
     BadRequestException,
 } from '@nestjs/common';
 // @ts-ignore
-import { BookingStatus } from '@prisma/client';
+import { BookingStatus, Prisma } from '@prisma/client';
 
 describe('BookingsService', () => {
     let service: BookingsService;
@@ -21,6 +22,7 @@ describe('BookingsService', () => {
             findMany: jest.Mock;
             create: jest.Mock;
             update: jest.Mock;
+            updateMany: jest.Mock;
             delete: jest.Mock;
         };
         room: {
@@ -28,6 +30,7 @@ describe('BookingsService', () => {
         };
         guest: {
             findUnique: jest.Mock;
+            findMany: jest.Mock;
         };
         $transaction: jest.Mock;
     };
@@ -69,6 +72,7 @@ describe('BookingsService', () => {
                 findMany: jest.fn(),
                 create: jest.fn(),
                 update: jest.fn(),
+                updateMany: jest.fn(),
                 delete: jest.fn(),
             },
             room: {
@@ -76,9 +80,19 @@ describe('BookingsService', () => {
             },
             guest: {
                 findUnique: jest.fn(),
+                findMany: jest.fn().mockResolvedValue([]),
             },
             $transaction: jest.fn(),
         };
+
+        // У юніт-тестах обидва «шарди» — той самий мок Prisma; ID на 'other' маршрутизуються на shard-b
+        const shard = {
+            index: 0,
+            name: 'shard-a',
+            read: (query: (db: unknown) => unknown) => query(prismaMock),
+            write: (mutation: (db: unknown) => unknown) => mutation(prismaMock),
+        };
+        const otherShard = { ...shard, index: 1, name: 'shard-b' };
 
         const cacheMock = {
             bumpVersion: jest.fn().mockResolvedValue(undefined),
@@ -94,6 +108,14 @@ describe('BookingsService', () => {
                     useValue: {
                         read: (query: (db: unknown) => unknown) => query(prismaMock),
                         write: (mutation: (db: unknown) => unknown) => mutation(prismaMock),
+                    },
+                },
+                {
+                    provide: ShardRouter,
+                    useValue: {
+                        forKey: (id: string) => (id.startsWith('other') ? otherShard : shard),
+                        childId: () => 'booking-new',
+                        fanOutList: async (query: (db: unknown) => Promise<unknown[]>) => query(prismaMock),
                     },
                 },
                 { provide: CacheService, useValue: cacheMock },
@@ -194,6 +216,28 @@ describe('BookingsService', () => {
             await expect(service.create(dto)).rejects.toThrow(ConflictException);
         });
 
+        it('should retry a serialization failure (P2034) and then succeed', async () => {
+            prisma.guest.findUnique.mockResolvedValue(mockGuest);
+            const conflict = new Prisma.PrismaClientKnownRequestError('write conflict', { code: 'P2034', clientVersion: 'test' });
+            prisma.$transaction.mockRejectedValueOnce(conflict).mockImplementation(async (callback) =>
+                callback({
+                    room: { findUnique: jest.fn().mockResolvedValue(mockRoom) },
+                    booking: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue(mockBooking) },
+                }),
+            );
+
+            await expect(service.create(dto)).resolves.toEqual(mockBooking);
+            expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+        });
+
+        it('should answer 409 (not 500) when serialization conflicts persist', async () => {
+            prisma.guest.findUnique.mockResolvedValue(mockGuest);
+            prisma.$transaction.mockRejectedValue(new Prisma.PrismaClientKnownRequestError('write conflict', { code: 'P2034', clientVersion: 'test' }));
+
+            await expect(service.create(dto)).rejects.toThrow(ConflictException);
+            expect(prisma.$transaction).toHaveBeenCalledTimes(5);
+        });
+
         it('should calculate totalPrice correctly based on nights and price per night', async () => {
             prisma.guest.findUnique.mockResolvedValue(mockGuest);
             let capturedData: any;
@@ -220,12 +264,14 @@ describe('BookingsService', () => {
     });
 
     describe('findOne', () => {
-        it('should return a booking when it exists', async () => {
+        it('should return a booking with its guest (application-side join)', async () => {
             prisma.booking.findUnique.mockResolvedValue(mockBooking);
+            prisma.guest.findMany.mockResolvedValue([mockGuest]);
 
             const result = await service.findOne('booking-1');
 
-            expect(result).toEqual(mockBooking);
+            expect(result).toEqual({ ...mockBooking, guest: mockGuest });
+            expect(prisma.guest.findMany).toHaveBeenCalledWith({ where: { id: { in: ['guest-1'] } } });
         });
 
         it('should throw NotFoundException when booking does not exist', async () => {
@@ -292,7 +338,7 @@ describe('BookingsService', () => {
 
             const result = await service.findAll();
 
-            expect(result).toEqual([mockBooking]);
+            expect(result).toEqual([{ ...mockBooking, guest: null }]);
             expect(prisma.booking.findMany).toHaveBeenCalled();
         });
     });
@@ -317,6 +363,76 @@ describe('BookingsService', () => {
             await expect(service.remove('nonexistent-id')).rejects.toThrow(
                 NotFoundException,
             );
+        });
+    });
+
+    describe('relocate (Cross-Shard Write)', () => {
+        const txFor = (overlap: unknown = null) => ({
+            room: { findUnique: jest.fn().mockResolvedValue(mockRoom) },
+            booking: {
+                findFirst: jest.fn().mockResolvedValue(overlap),
+                create: jest.fn().mockImplementation(({ data }) => ({ ...mockBooking, ...data })),
+                update: jest.fn().mockImplementation(({ where, data }) => ({ ...mockBooking, id: where.id, ...data })),
+            },
+        });
+
+        beforeEach(() => {
+            prisma.booking.findUnique.mockResolvedValue(mockBooking);
+            prisma.$transaction.mockImplementation(async (callback) => callback(txFor()));
+        });
+
+        it('той самий шард → одна локальна ACID-транзакція', async () => {
+            const result = await service.relocate('booking-1', { roomId: 'room-2' });
+
+            expect(result.mode).toBe('local-transaction');
+            expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+            expect(result.previous.status).toBe(BookingStatus.CANCELLED);
+        });
+
+        it('різні шарди → Saga: T1 резерв, T2 скасування, T3 підтвердження', async () => {
+            prisma.booking.updateMany.mockResolvedValue({ count: 1 });
+            prisma.booking.update.mockImplementation(({ data }) => ({ ...mockBooking, id: 'booking-new', ...data }));
+
+            const result = await service.relocate('booking-1', { roomId: 'other-room' });
+
+            expect(result.mode).toBe('saga');
+            expect(result.from).toBe('shard-a');
+            expect(result.to).toBe('shard-b');
+            expect(result.steps.map((s) => s.status)).toEqual(['done', 'done', 'done']);
+            expect(result.booking.status).toBe(mockBooking.status);
+        });
+
+        it('збій T2 → компенсація резерву (C1) і 409 зі списком кроків', async () => {
+            process.env.SAGA_FAULT_INJECTION = 'true';
+            prisma.booking.updateMany.mockResolvedValue({ count: 1 });
+
+            const error = await service.relocate('booking-1', { roomId: 'other-room', simulateFailure: true }).catch((e) => e);
+            delete process.env.SAGA_FAULT_INJECTION;
+
+            expect(error.getStatus()).toBe(409);
+            const steps = error.getResponse().steps.map((s: { step: string; status: string }) => `${s.step.split(' ')[0]}:${s.status}`);
+            expect(steps).toEqual(['T1:done', 'T2:failed', 'C1:compensated']);
+            // Компенсація скасовує лише PENDING-резерв (ідемпотентно)
+            expect(prisma.booking.updateMany).toHaveBeenCalledWith({
+                where: { id: 'booking-new', status: BookingStatus.PENDING },
+                data: { status: BookingStatus.CANCELLED },
+            });
+        });
+
+        it('новий номер зайнятий → сага зупиняється на T1, компенсувати нічого', async () => {
+            prisma.$transaction.mockImplementation(async (callback) => callback(txFor(mockBooking)));
+
+            const error = await service.relocate('booking-1', { roomId: 'other-room' }).catch((e) => e);
+
+            expect(error.getStatus()).toBe(409);
+            expect(error.getResponse().steps).toHaveLength(1);
+            expect(prisma.booking.updateMany).not.toHaveBeenCalled();
+        });
+
+        it('скасоване бронювання переселити не можна', async () => {
+            prisma.booking.findUnique.mockResolvedValue({ ...mockBooking, status: BookingStatus.CANCELLED });
+
+            await expect(service.relocate('booking-1', { roomId: 'room-2' })).rejects.toThrow(ConflictException);
         });
     });
 });
