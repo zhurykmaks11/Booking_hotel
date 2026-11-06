@@ -230,7 +230,8 @@ Argo Rollouts вміє керувати вагою трафіку через Ing
 ```powershell
 git tag -a v1.2.0 main/main -m "Release 1.2.0"
 git tag -a v1.3.0 main/main -m "Release 1.3.0"
-git push main v1.2.0 v1.3.0
+git tag -a v1.4.0 main/main -m "Release 1.4.0"   # для повторної демонстрації на захисті
+git push main v1.2.0 v1.3.0 v1.4.0
 docker manifest inspect ghcr.io/zhurykmaks11/booking-hotel-api:1.2.0 > $null; $?   # True, коли CI опублікував образ
 ```
 
@@ -261,8 +262,12 @@ kubectl argo rollouts dashboard
 
 ```powershell
 kubectl -n booking-hotel-gitops run ratio --rm -i --restart=Never --image=curlimages/curl:8.10.1 -- `
-  sh -c 'for i in $(seq 200); do curl -s -m 2 http://booking-hotel-api/version | grep -o "\"version\":\"[^\"]*\""; done | sort | uniq -c'
+  sh -c 'for i in $(seq 200); do curl -s -m 2 http://booking-hotel-api/version | cut -d, -f1; done | sort | uniq -c'
+# 150 {"version":"1.1.0"
+#  50 {"version":"1.2.0"
 ```
+
+Усередині `sh -c '...'` немає подвійних лапок: Windows PowerShell 5.1 спотворює подвійні лапки в аргументах зовнішніх програм.
 
 ### 5.2. Реліз 1.1.0 → 1.2.0
 
@@ -420,6 +425,8 @@ argocd app history booking-hotel
 **Що не змінювалось:** `bootstrap/root.yaml` (root і так підхоплює всі файли з `argocd-apps/`), Service `booking-hotel-api` (його selector однаково вибирає поди Deployment і Rollout), код застосунку, `.github/workflows/ci.yml`. Зміни лише в `helm/`, `argocd-apps/` і `docs/`, тож CI не збирає образ на цей PR (фільтр шляхів з Лаб. №5).
 
 ## 8. Захист: лайв-демонстрація
+
+> Покрокова інструкція до здачі (підготовка, термінали, що показувати й казати, що робити, якщо щось пішло не так) — у **[DEVOPS-LAB6-DEFENSE.md](DEVOPS-LAB6-DEFENSE.md)**.
 
 **Підготовка (до захисту):**
 
