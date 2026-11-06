@@ -18,4 +18,12 @@
 3. Перевірка релізу:
    helm test {{ .Release.Name }} -n {{ .Release.Namespace }} --logs
 
-Репліки API: {{ .Values.api.replicaCount }}, Ingress: {{ if .Values.ingress.enabled }}увімкнено{{ else }}вимкнено{{ end }}, NODE_ENV: {{ .Values.config.nodeEnv }}
+{{- if .Values.api.rollout.enabled }}
+
+4. API розгортається як Rollout (Argo Rollouts, canary):
+   kubectl argo rollouts get rollout {{ include "booking-hotel.componentName" (dict "ctx" $ "component" "api") }} -n {{ .Release.Namespace }} --watch
+   kubectl argo rollouts promote {{ include "booking-hotel.componentName" (dict "ctx" $ "component" "api") }} -n {{ .Release.Namespace }}   # продовжити з ручної паузи
+   kubectl argo rollouts abort {{ include "booking-hotel.componentName" (dict "ctx" $ "component" "api") }} -n {{ .Release.Namespace }}     # скасувати реліз
+{{- end }}
+
+Репліки API: {{ .Values.api.replicaCount }}, Rollout: {{ if .Values.api.rollout.enabled }}так (canary){{ else }}ні (Deployment){{ end }}, Ingress: {{ if .Values.ingress.enabled }}увімкнено{{ else }}вимкнено{{ end }}, NODE_ENV: {{ .Values.config.nodeEnv }}

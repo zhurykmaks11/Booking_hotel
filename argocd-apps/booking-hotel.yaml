@@ -5,6 +5,9 @@ kind: Application
 metadata:
   name: booking-hotel
   namespace: argocd
+  annotations:
+    # Лаб. №6: після argo-rollouts (wave -1), бо чарт містить Rollout, а його CRD приносить контролер
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   project: default
   source:
@@ -25,3 +28,13 @@ spec:
       selfHeal: true     # п. 6a: Argo CD повертає ручні зміни в кластері до стану з Git
     syncOptions:
       - CreateNamespace=true
+      # Лаб. №6: перехід Deployment -> Rollout без простою. Старий Deployment видаляється (prune)
+      # лише наприкінці синхронізації, коли поди Rollout уже Ready.
+      - PruneLast=true
+    # Якщо CRD Rollout ще не встановлено (перша синхронізація), Argo CD повторить спробу
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 2m

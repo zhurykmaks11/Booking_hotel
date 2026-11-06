@@ -1,0 +1,23 @@
+{{- if .Values.api.rollout.enabled }}
+{{- if lt (int .Values.api.replicaCount) 4 }}
+{{- fail "api.rollout.enabled: потрібно api.replicaCount >= 4, щоб було видно співвідношення версій (25/50/75 %)" }}
+{{- end }}
+# Rollout (Argo Rollouts) замість Deployment: той самий шаблон пода, але реліз іде кроками
+# з api.rollout.strategy (setWeight / pause), і його можна зупинити, перевірити й скасувати.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: {{ include "booking-hotel.componentName" (dict "ctx" $ "component" "api") }}
+  labels:
+    {{- include "booking-hotel.labels" (dict "ctx" $ "component" "api") | nindent 4 }}
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      {{- include "booking-hotel.selectorLabels" (dict "ctx" $ "component" "api") | nindent 6 }}
+  strategy:
+    {{- toYaml .Values.api.rollout.strategy | nindent 4 }}
+  template:
+    {{- include "booking-hotel.apiPodTemplate" . | nindent 4 }}
+{{- end }}

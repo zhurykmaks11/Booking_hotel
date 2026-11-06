@@ -84,7 +84,9 @@ helm/booking-hotel/
     ├── postgres-service.yaml
     ├── redis-deployment.yaml              # якщо redis.enabled
     ├── redis-service.yaml                 # якщо redis.enabled
-    ├── api-deployment.yaml
+    ├── _api-pod.tpl                       # шаблон пода API (спільний для Deployment і Rollout)
+    ├── api-deployment.yaml                # якщо НЕ api.rollout.enabled
+    ├── api-rollout.yaml                   # якщо api.rollout.enabled (Argo Rollouts, Лаб. №6)
     ├── api-service.yaml
     ├── api-ingress.yaml                   # якщо ingress.enabled
     ├── hooks/pre-upgrade-db-check.yaml    # хук pre-upgrade
@@ -157,6 +159,8 @@ helm/booking-hotel/
 | `api.containerPort` | `3000` | порт контейнера |
 | `api.resources` | req `50m/128Mi`, lim `300m/384Mi` | ресурси API |
 | `api.rollingUpdate.maxSurge` / `maxUnavailable` | `1` / `0` | rolling update без простою |
+| `api.rollout.enabled` | `false` | Rollout (Argo Rollouts) замість Deployment; потрібно `replicaCount >= 4` (Лаб. №6) |
+| `api.rollout.strategy` | canary: 25 % → ручна пауза → 50 % → 30 с → 75 % → 30 с | `spec.strategy` Rollout-а, підставляється як є |
 | `config.nodeEnv` | `development` | `NODE_ENV` |
 | `config.port` | `3000` | `PORT` |
 | `config.syntheticDelayMs` | `0` | `SYNTHETIC_DELAY_MS` |
