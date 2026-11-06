@@ -1,6 +1,6 @@
 ﻿# Baseline Environment Specification
 
-Знято: 2026-10-24 18:35
+Знято: 2026-10-29 11:58
 
 | Параметр | Значення |
 |---|---|
@@ -19,12 +19,13 @@
 ## Стан контейнерів
 
 ```
-NAMES                 IMAGE                 STATUS
-hotel_booking_api_2   backend-api-2         Up About an hour
-hotel_booking_api_3   backend-api-3         Up About an hour
-hotel_booking_api_1   backend-api-1         Up About an hour
-hotel_booking_nginx   booking-hotel-nginx   Up 4 hours
-database_replica      postgres:16           Up 4 hours (healthy)
-database_primary      postgres:16           Up 4 hours (healthy)
-hotel_booking_redis   redis:7-alpine        Up About a minute (healthy)
+NAMES                 IMAGE                                 STATUS
+hotel_booking_nginx   booking-hotel-nginx                   Up 11 seconds
+database_replica      postgres:16                           Up 12 seconds (healthy)
+hotel_booking_api_2   backend-api-2                         Up 12 seconds
+hotel_booking_api_3   backend-api-3                         Up 12 seconds
+hotel_booking_api_1   backend-api-1                         Up 12 seconds
+database_primary      postgres:16                           Up 18 seconds (healthy)
+hotel_booking_redis   redis:7-alpine                        Up 19 seconds (healthy)
+minikube              gcr.io/k8s-minikube/kicbase:v0.0.51   Up 21 hours
 ```

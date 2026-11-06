@@ -17,19 +17,12 @@ import { randomUUID } from 'crypto';
 /** Кількість віртуальних бакетів. Фіксована: входить у формат ID, змінювати не можна. */
 export const BUCKETS = 64;
 
-/**
- * Політика розміщення нових готелів (SHARD_STRATEGY):
- *  hash — бакет = FNV-1a(hotelId) mod 64: ключ високої потужності, рівномірний розподіл;
- *  city — бакет = FNV-1a(city) mod 64: «наївний» геошардинг за ключем низької потужності
- *         (кілька міст) — використовується для моделювання Hot Shard.
- */
 export type ShardStrategy = 'hash' | 'city';
 
 export function parseStrategy(value: string | undefined): ShardStrategy {
     return value === 'city' ? 'city' : 'hash';
 }
 
-/** 32-бітний FNV-1a: простий, швидкий і детермінований (однаковий результат на всіх інстансах). */
 export function fnv1a(input: string): number {
     let hash = 0x811c9dc5;
     for (let i = 0; i < input.length; i++) {

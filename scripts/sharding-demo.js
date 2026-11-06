@@ -1,23 +1,3 @@
-/**
- * Демонстрація шардингу для захисту (Лаб. №7). Кластер:
- *   docker compose -f docker-compose.yml -f docker-compose.sharding.yml up -d --build
- *
- *   node scripts/sharding-demo.js status                 — топологія, стратегія, карта бакетів, стан шардів
- *   node scripts/sharding-demo.js reset [--strategy city] — порожні шарди + перезапуск API з вибраною стратегією (hash | city)
- *   node scripts/sharding-demo.js seed [-h 200 -r 5 -b 2000] — тестовий набір: готелі (нерівномірно за містами), номери, гості, бронювання
- *   node scripts/sharding-demo.js routing                — п. 2.2: нові об'єкти детерміновано потрапляють на шард свого готелю
- *   node scripts/sharding-demo.js distribution [--save]  — п. 2.3: Dataset Distribution Matrix (results-lab7/distribution-<strategy>.json)
- *   node scripts/sharding-demo.js hot [-n 600 -c 30 --cpus 0.25] — п. 2.3: сплеск бронювань в одному місті → частка записів і затримка по шардах
- *                                                          (--cpus обмежує CPU шардів, щоб перевантаження було видно в затримках)
- *   node scripts/sharding-demo.js latency [-n 100] [--save] — п. 2.4: затримка Shard-Local vs Cross-Shard запитів
- *   node scripts/sharding-demo.js saga                   — п. 2.4: переселення між шардами (Saga) і компенсація при збої
- *   node scripts/sharding-demo.js resharding [--save]    — п. 2.5: modulo vs virtual buckets vs consistent hashing
- *   node scripts/sharding-demo.js isolation              — збій одного шарду: решта ключів працює, fan-out — частковий
- *   node scripts/sharding-demo.js report-data            — distribution + latency + resharding зі збереженням (для звіту)
- *
- * Запити йдуть через Nginx (http://localhost) — їх обробляють різні інстанси API (X-Instance-ID),
- * а X-Shard / X-Shard-Bucket / X-Shard-Fanout показують, куди Shard Router відправив запит.
- */
 const http = require('http');
 const fs = require('fs');
 const path = require('path');

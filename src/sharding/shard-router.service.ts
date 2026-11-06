@@ -19,7 +19,7 @@ import {
 /**
  * Один шард з точки зору сервісів: «виконай читання / запис на цьому вузлі».
  * Фізичний шард — окремий PostgreSQL (власний пул Prisma).
- * Без шардингу єдиний шард "global" — це вузол з Лаб. №6 (Primary + Replica через DbRouter).
+ * Без шардингу єдиний шард "global" — це вузол з(Prim Лаб. №6 ary + Replica через DbRouter).
  */
 export interface Shard {
     index: number;
