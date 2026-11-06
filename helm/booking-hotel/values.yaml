@@ -27,9 +27,30 @@ api:
     limits:
       cpu: 300m
       memory: 384Mi
+  # Стратегія звичайного Deployment (коли rollout.enabled: false)
   rollingUpdate:
     maxSurge: 1
     maxUnavailable: 0
+  # --- Progressive delivery (DevOps, Лаб. №6) ---
+  # true -> замість Deployment рендериться Rollout (Argo Rollouts) з тим самим шаблоном пода.
+  # Потрібен контролер Argo Rollouts у кластері (argocd-apps/argo-rollouts.yaml) і replicaCount >= 4.
+  rollout:
+    enabled: false
+    # Стратегія Canary без traffic router: Service booking-hotel-api вибирає і stable-, і canary-поди,
+    # тож частка запитів на нову версію = частка її подів. При 4 репліках вага 25/50/75 % = 1/2/3 поди.
+    strategy:
+      canary:
+        # Як і в rollingUpdate: спершу піднімається новий под, лише потім гаситься старий (4 поди Ready завжди)
+        maxSurge: 1
+        maxUnavailable: 0
+        steps:
+          - setWeight: 25        # 1 под canary : 3 stable
+          - pause: {}            # ручна пауза: перевірка нової версії, далі promote або abort
+          - setWeight: 50        # 2 : 2
+          - pause: { duration: 30s }
+          - setWeight: 75        # 3 : 1
+          - pause: { duration: 30s }
+          # після останнього кроку — 100 %: canary стає stable, старий ReplicaSet масштабується до 0
 
 # --- Конфігурація застосунку (ConfigMap) ---
 config:

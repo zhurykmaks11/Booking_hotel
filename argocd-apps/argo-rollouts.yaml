@@ -1,0 +1,35 @@
+# Контролер Argo Rollouts (DevOps, Лаб. №6) — встановлюється з Git, як і застосунок.
+# Джерело — офіційний Helm-чарт argo-helm (не каталог цього репозиторію), версія зафіксована.
+# Він приносить CRD Rollout/AnalysisTemplate/Experiment і контролер, який виконує кроки canary.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts
+  namespace: argocd
+  annotations:
+    # root синхронізує цей Application раніше за booking-hotel (wave 0): спершу CRD Rollout, потім сам Rollout
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-rollouts
+    targetRevision: 2.43.8          # Argo Rollouts v1.10.1
+    helm:
+      releaseName: argo-rollouts
+      valuesObject:
+        controller:
+          replicas: 1               # minikube: одного екземпляра достатньо (за замовчуванням 2)
+        dashboard:
+          enabled: true             # веб-дашборд Rollouts у кластері (kubectl -n argo-rollouts port-forward svc/argo-rollouts-dashboard 3100:3100)
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-rollouts
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # CRD Rollout завеликий для client-side apply (анотація last-applied-configuration > 256 KB)
+      - ServerSideApply=true
