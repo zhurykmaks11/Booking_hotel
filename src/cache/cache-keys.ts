@@ -4,6 +4,8 @@ import { createHash } from 'crypto';
  * Схема ключів кешування (Лаб. №4, п. 2.4).
  *
  *   booking:hotel:{id}                              — готель разом із номерами
+ *   booking:hotel-stats:{id}                        — агрегована статистика готелю (Лаб. №8)
+ *   booking:...:{id}:lock                           — розподілене блокування заповнення ключа (Лаб. №8)
  *   booking:rooms:search:version                    — лічильник «покоління» пошуку
  *   booking:rooms:search:v{version}:{sha1(params)}  — результат пошуку вільних номерів
  *
@@ -33,6 +35,9 @@ export function normalizeSearchParams(params: SearchParams) {
 export const CacheKeys = {
     hotel: (id: string) => `${PREFIX}:hotel:${id}`,
 
+    hotelStats: (id: string) => `${PREFIX}:hotel-stats:${id}`,
+    hotelStatsPattern: `${PREFIX}:hotel-stats:*`,
+
     searchVersion: `${PREFIX}:rooms:search:version`,
 
     roomsSearch: (version: number, params: SearchParams) => {
@@ -43,6 +48,8 @@ export const CacheKeys = {
     },
 };
 
+// Лаб. №8: jitter симетричний — TTL = base ± jitter (раніше base + [0..jitter]).
+// TTL статистики готелю задається в ResilienceConfig (statsTtlSec ± statsJitterSec).
 export const CacheTtl = {
     hotel: { base: 600, jitter: 60 },
     roomsSearch: { base: 60, jitter: 10 },

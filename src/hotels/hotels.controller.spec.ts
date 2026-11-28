@@ -4,6 +4,8 @@ import { HotelsService } from './hotels.service';
 import { DbRouter } from '../database/db-router.service';
 import { ShardRouter } from '../sharding/shard-router.service';
 import { CacheService } from '../cache/cache.service';
+import { ResilientCacheService } from '../resilience/resilient-cache.service';
+import { ResilienceConfigService } from '../resilience/resilience-config.service';
 
 describe('HotelsController', () => {
   let controller: HotelsController;
@@ -11,7 +13,7 @@ describe('HotelsController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [HotelsController],
-      providers: [HotelsService, { provide: DbRouter, useValue: {} }, { provide: ShardRouter, useValue: {} }, { provide: CacheService, useValue: {} }],
+      providers: [HotelsService, { provide: DbRouter, useValue: {} }, { provide: ShardRouter, useValue: {} }, { provide: CacheService, useValue: {} }, { provide: ResilientCacheService, useValue: {} }, { provide: ResilienceConfigService, useValue: {} }],
     }).compile();
 
     controller = module.get<HotelsController>(HotelsController);

@@ -1,0 +1,111 @@
+{
+  "requests": 600,
+  "hotelId": "002ae86d-68fc-4082-9bc9-35d609a1e79c",
+  "rows": [
+    {
+      "mode": "none",
+      "requests": 600,
+      "node": "shard-a",
+      "dbLoadsApp": 66,
+      "dbCalls": 66,
+      "peakActiveDb": 40,
+      "rps": 396.10538830662773,
+      "p50": 715.9086075,
+      "p95": 1062.5839612,
+      "p99": 1111.23031524,
+      "max": 1185.916047,
+      "errors": 0,
+      "errorRate": 0,
+      "byCache": {
+        "HIT": 534,
+        "MISS": 66
+      },
+      "metrics": {
+        "misses": 66,
+        "dbLoads": 66,
+        "hits": 534
+      }
+    },
+    {
+      "mode": "singleflight",
+      "requests": 600,
+      "node": "shard-a",
+      "dbLoadsApp": 3,
+      "dbCalls": 3,
+      "peakActiveDb": 3,
+      "rps": 676.714678091824,
+      "p50": 177.8209385,
+      "p95": 360.08719145,
+      "p99": 417.30940388,
+      "max": 434.819869,
+      "errors": 0,
+      "errorRate": 0,
+      "byCache": {
+        "HIT": 552,
+        "MISS": 3,
+        "COALESCED": 45
+      },
+      "metrics": {
+        "coalesced": 408,
+        "misses": 3,
+        "dbLoads": 3,
+        "hits": 189
+      }
+    },
+    {
+      "mode": "lock",
+      "requests": 600,
+      "node": "shard-a",
+      "dbLoadsApp": 1,
+      "dbCalls": 1,
+      "peakActiveDb": 1,
+      "rps": 844.9655230407564,
+      "p50": 315.8837565,
+      "p95": 462.3352719,
+      "p99": 496.10491865999995,
+      "max": 510.203838,
+      "errors": 0,
+      "errorRate": 0,
+      "byCache": {
+        "HIT": 179,
+        "MISS": 1,
+        "COALESCED": 142,
+        "LOCK-WAIT": 278
+      },
+      "metrics": {
+        "coalesced": 446,
+        "lockAcquired": 1,
+        "misses": 1,
+        "dbLoads": 1,
+        "lockWaits": 2,
+        "hits": 151
+      }
+    },
+    {
+      "mode": "swr",
+      "requests": 600,
+      "node": "shard-a",
+      "dbLoadsApp": 1,
+      "dbCalls": 1,
+      "peakActiveDb": 1,
+      "rps": 1195.8071342702654,
+      "p50": 100.76998549999999,
+      "p95": 208.41318029999996,
+      "p99": 299.45878567,
+      "max": 301.959234,
+      "errors": 0,
+      "errorRate": 0,
+      "byCache": {
+        "HIT": 236,
+        "STALE": 364
+      },
+      "metrics": {
+        "staleServed": 107,
+        "refreshes": 1,
+        "dbLoads": 1,
+        "coalesced": 367,
+        "hits": 126
+      }
+    }
+  ]
+}

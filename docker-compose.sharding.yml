@@ -11,6 +11,8 @@
 x-shard: &shard
   image: postgres:16
   restart: always
+  # Лаб. №8: pg_stat_statements — скільки разів шард виконав запит статистики готелю
+  command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
   environment:
     POSTGRES_USER: postgres
     POSTGRES_PASSWORD: postgres
