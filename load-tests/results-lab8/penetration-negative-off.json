@@ -1,0 +1,19 @@
+{
+  "negativeCache": false,
+  "requests": 3000,
+  "ids": 50,
+  "concurrency": 50,
+  "dbCalls": 2223,
+  "dbLoadsApp": 2223,
+  "negativeHits": 0,
+  "notFound": 3000,
+  "otherStatuses": 0,
+  "rps": 192.18449711723255,
+  "p50": 206.2116,
+  "p95": 505.6412,
+  "p99": 784.6053,
+  "byCache": {
+    "MISS": 2223,
+    "COALESCED": 777
+  }
+}

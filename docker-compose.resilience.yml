@@ -1,0 +1,27 @@
+# Лаб. №8 — Resilience Engineering. Підключається поверх основного файлу (і, за потреби, шардингу):
+#   docker compose -f docker-compose.yml -f docker-compose.sharding.yml -f docker-compose.resilience.yml up -d --build
+#
+# Режим захисту змінюється без перезапуску: PUT /resilience/config (scripts/resilience-demo.js).
+# Тут — лише значення за замовчуванням і дозвіл керувати експериментом.
+
+x-api-resilience: &api-resilience
+  environment:
+    # none | singleflight | lock | swr
+    CACHE_PROTECTION: "${CACHE_PROTECTION:-lock}"
+    CACHE_TTL_JITTER: "true"
+    CACHE_NEGATIVE: "true"
+    STATS_TTL_SEC: "60"
+    STATS_TTL_JITTER_SEC: "15"
+    NEGATIVE_TTL_SEC: "30"
+    SWR_STALE_SEC: "60"
+    LOCK_TTL_MS: "5000"
+    LOCK_WAIT_MS: "3000"
+    # Модель коштовної аналітики: запит статистики готелю триває ~200 мс на боці СУБД
+    STATS_QUERY_COST_MS: "200"
+    # Дозволяє PUT /resilience/config, POST /resilience/expire, POST /resilience/metrics/reset
+    RESILIENCE_ADMIN: "true"
+
+services:
+  api-1: *api-resilience
+  api-2: *api-resilience
+  api-3: *api-resilience

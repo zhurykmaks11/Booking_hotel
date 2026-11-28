@@ -8,6 +8,7 @@
 - **Лабораторна робота №5** — Load & Performance Baseline.
 - **Лабораторна робота №6** — Database Replication & Read/Write Separation.
 - **Лабораторна робота №7** — Data Scaling: Sharding & Partitioning.
+- **Лабораторна робота №8** — Resilience Engineering: Cache Stampede, Thundering Herd, Cache Penetration.
 
 ---
 
@@ -35,6 +36,7 @@
 - [Навантажувальне тестування (Лаб. №5)](#навантажувальне-тестування-лаб-5)
 - [Реплікація БД і Read/Write Separation (Лаб. №6)](#реплікація-бд-і-readwrite-separation-лаб-6)
 - [Шардинг даних (Лаб. №7)](#шардинг-даних-лаб-7)
+- [Стійкість кешу (Лаб. №8)](#стійкість-кешу-лаб-8)
 
 ---
 
@@ -1135,4 +1137,24 @@ node scripts/sharding-demo.js saga                 # Saga і компенсац�
 node scripts/sharding-demo.js isolation            # збій одного шарду
 node scripts/sharding-demo.js resharding           # modulo vs virtual buckets vs consistent hashing
 npm run load:sharding                              # Single Node vs Sharded (k6, ~50 хв)
+```
+
+## Стійкість кешу (Лаб. №8)
+
+Звіт для здачі: [`docs/LAB8.md`](docs/LAB8.md). Таблиці й графіки: [`load-tests/results-lab8/SUMMARY.md`](load-tests/results-lab8/SUMMARY.md).
+
+**Ресурс:** `GET /hotels/:id/stats` — агрегована статистика готелю (коштовний запит, ~200 мс у СУБД). **Захист** ([`src/resilience/`](src/resilience/)): Single-flight, розподілене блокування Redis (`SET NX PX` + зняття через Lua за токеном), Stale-While-Revalidate, TTL Jitter (± 25 %), Negative Caching (30 с). Режим перемикається без перезапуску: `PUT /resilience/config`; лічильники — `GET /resilience`; заголовок `X-Cache`: `HIT / MISS / COALESCED / LOCK-WAIT / STALE / NEGATIVE / BYPASS`.
+
+**Результати:**
+- 600 одночасних запитів до холодного ключа — 66 звернень до СУБД без захисту, **1** з блокуванням;
+- k6 500 VUs × 30 с — 915 → 6;
+- Avalanche — пік 40 → 7 звернень за секунду з jitter;
+- 3000 запитів до неіснуючих id — 2223 → 50 звернень з Negative Caching.
+
+```powershell
+npm run res:up
+node scripts/resilience-demo.js stampede --mode none -n 600
+node scripts/resilience-demo.js stampede --mode lock -n 600
+node scripts/resilience-demo.js penetration --negative on
+node scripts/resilience-demo.js avalanche --jitter off
 ```

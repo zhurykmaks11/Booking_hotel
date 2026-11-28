@@ -1,0 +1,33 @@
+{
+  "scenario": "sustained",
+  "vus": 500,
+  "durationSec": 30.228428631,
+  "requests": 28500,
+  "rps": 942.8210889788875,
+  "avg": 24.004506778280675,
+  "p50": 4.468816,
+  "p95": 150.32568509999996,
+  "p99": 219.99160146999998,
+  "max": 414.86724,
+  "errorRate": 0,
+  "errors5xx": 0,
+  "byCache": {
+    "HIT": 26168,
+    "MISS": 6,
+    "COALESCED": 745,
+    "LOCK-WAIT": 1581
+  },
+  "mode": "lock",
+  "ttl": 5,
+  "node": "shard-a",
+  "dbCalls": 6,
+  "dbLoadsApp": 6,
+  "metrics": {
+    "lockAcquired": 6,
+    "misses": 6,
+    "dbLoads": 6,
+    "coalesced": 17339,
+    "lockWaits": 12,
+    "hits": 11143
+  }
+}

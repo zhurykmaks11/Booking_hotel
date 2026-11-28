@@ -47,7 +47,15 @@
     "shard:resharding": "node scripts/sharding-demo.js resharding",
     "shard:isolation": "node scripts/sharding-demo.js isolation",
     "load:sharding": "powershell -ExecutionPolicy Bypass -File load-tests/run-load-tests.ps1 -Experiment sharding -ApplyLimits",
-    "load:report-sharding": "node load-tests/report-sharding.js"
+    "load:report-sharding": "node load-tests/report-sharding.js",
+    "res:up": "docker compose -f docker-compose.yml -f docker-compose.sharding.yml -f docker-compose.resilience.yml up -d --build",
+    "res:status": "node scripts/resilience-demo.js status",
+    "res:stampede": "node scripts/resilience-demo.js stampede",
+    "res:compare": "node scripts/resilience-demo.js compare --save",
+    "res:avalanche": "node scripts/resilience-demo.js avalanche",
+    "res:penetration": "node scripts/resilience-demo.js penetration",
+    "res:k6": "node scripts/resilience-demo.js k6-all",
+    "load:report-resilience": "node load-tests/report-resilience.js"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",

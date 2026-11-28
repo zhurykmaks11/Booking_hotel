@@ -59,6 +59,11 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
         return this.client?.status === 'ready';
     }
 
+    /** Клієнт Redis, якщо він підключений (Лаб. №8: блокування, конфігурація і лічильники стійкості). */
+    get redis(): Redis | null {
+        return this.isReady ? this.client : null;
+    }
+
     /** Чекає на підключення до Redis не довше timeoutMs. Ніколи не кидає помилку. */
     whenReady(timeoutMs: number): Promise<boolean> {
         const client = this.client;

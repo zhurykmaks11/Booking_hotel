@@ -6,6 +6,7 @@ import { CacheModule } from './cache/cache.module';
 import { DatabaseModule } from './database/database.module';
 import { RequestContextMiddleware } from './database/request-context';
 import { ShardingModule } from './sharding/sharding.module';
+import { ResilienceModule } from './resilience/resilience.module';
 import { HotelsModule } from './hotels/hotels.module';
 import { RoomsModule } from './rooms/rooms.module';
 import { GuestsModule } from './guests/guests.module';
@@ -20,6 +21,7 @@ import { SyntheticDelayMiddleware } from './common/middleware/synthetic-delay.mi
         CacheModule,
         DatabaseModule,
         ShardingModule,
+        ResilienceModule,
         HotelsModule,
         RoomsModule,
         GuestsModule,
