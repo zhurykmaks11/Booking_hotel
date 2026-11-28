@@ -17,6 +17,10 @@ RUN npm run build
 # ---- Production stage ----
 FROM node:24-alpine
 
+# Оновлення системних пакетів Alpine: базовий образ node:24-alpine виходить рідше, ніж виправлення
+# вразливостей (напр. CVE-2026-4738 у zlib), а CI зупиняє публікацію образу при Critical (Grype).
+RUN apk upgrade --no-cache
+
 WORKDIR /app
 
 # Версія образу (передається з CI: 1.0.0, 1.1.0, sha-...); віддається ендпоінтом GET /version
