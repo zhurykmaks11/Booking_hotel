@@ -14,9 +14,12 @@ import { BookingsModule } from './bookings/bookings.module';
 import { HealthModule } from './health/health.module';
 import { InstanceIdMiddleware } from './common/middleware/instance-id.middleware';
 import { SyntheticDelayMiddleware } from './common/middleware/synthetic-delay.middleware';
+import { ObservabilityModule } from './observability/observability.module';
+import { HttpObservabilityMiddleware } from './observability/http-observability.middleware';
 
 @Module({
     imports: [
+        ObservabilityModule,
         PrismaModule,
         CacheModule,
         DatabaseModule,
@@ -34,7 +37,8 @@ import { SyntheticDelayMiddleware } from './common/middleware/synthetic-delay.mi
 export class AppModule implements NestModule {
     configure(consumer: MiddlewareConsumer) {
         consumer
-            .apply(RequestContextMiddleware, InstanceIdMiddleware, SyntheticDelayMiddleware)
+            // HttpObservabilityMiddleware першим: тривалість у метриках включає всі інші middleware
+            .apply(HttpObservabilityMiddleware, RequestContextMiddleware, InstanceIdMiddleware, SyntheticDelayMiddleware)
             .forRoutes('*');
     }
 }

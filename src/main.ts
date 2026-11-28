@@ -2,9 +2,12 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { JsonLogger } from './observability/json-logger';
+import { logFormat } from './observability/observability.constants';
 
 async function bootstrap() {
-    const app = await NestFactory.create(AppModule);
+    // DevOps, Лаб. №7: у Kubernetes (NODE_ENV=production або LOG_FORMAT=json) логи — JSON у stdout для Loki
+    const app = await NestFactory.create(AppModule, logFormat() === 'json' ? { logger: new JsonLogger() } : {});
 
     // Коректне завершення по SIGTERM (Kubernetes при rolling update / видаленні пода)
     app.enableShutdownHooks();
