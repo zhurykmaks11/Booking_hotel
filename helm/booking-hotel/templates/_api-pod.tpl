@@ -25,6 +25,11 @@ spec:
             name: {{ include "booking-hotel.fullname" . }}-config
         - secretRef:
             name: {{ include "booking-hotel.secretName" . }}
+      {{- with .Values.api.env }}
+      # DevOps, Лаб. №7: довільні змінні (FAIL_RATE) — частина шаблону пода, тож їхня зміна = новий реліз
+      env:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       resources:
         {{- toYaml .Values.api.resources | nindent 8 }}
       # Старт включає prisma migrate deploy — до 150 с

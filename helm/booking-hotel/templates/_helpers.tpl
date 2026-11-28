@@ -84,6 +84,20 @@ app.kubernetes.io/part-of: booking-hotel
 {{- end }}
 
 {{/*
+DevOps, Лаб. №7: фільтр PromQL для метрик API цього релізу — namespace і Service (мітки додає Prometheus).
+*/}}
+{{- define "booking-hotel.metricsSelector" -}}
+{{- default (printf "namespace=%q,service=%q" .Release.Namespace (include "booking-hotel.componentName" (dict "ctx" . "component" "api"))) .Values.api.rollout.analysis.selector }}
+{{- end }}
+
+{{/*
+Ім'я AnalysisTemplate: booking-hotel-api-success-rate (на нього посилається крок analysis у strategy).
+*/}}
+{{- define "booking-hotel.analysisTemplateName" -}}
+{{- printf "%s-success-rate" (include "booking-hotel.componentName" (dict "ctx" . "component" "api")) }}
+{{- end }}
+
+{{/*
 Ім'я Secret з паролем БД: existingSecret (створений вручну) або <fullname>-secret (з чарта).
 */}}
 {{- define "booking-hotel.secretName" -}}

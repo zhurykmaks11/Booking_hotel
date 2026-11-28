@@ -9,6 +9,9 @@ data:
   NODE_ENV: {{ .Values.config.nodeEnv | quote }}
   PORT: {{ .Values.config.port | quote }}
   SYNTHETIC_DELAY_MS: {{ .Values.config.syntheticDelayMs | quote }}
+  {{- with .Values.config.logFormat }}
+  LOG_FORMAT: {{ . | quote }}
+  {{- end }}
   {{- if .Values.redis.enabled }}
   REDIS_URL: {{ printf "redis://%s:6379" (include "booking-hotel.componentName" (dict "ctx" $ "component" "redis")) | quote }}
   {{- end }}

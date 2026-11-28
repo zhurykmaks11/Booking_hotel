@@ -20,6 +20,11 @@ api:
     # Порожньо -> Kubernetes видасть вільний порт (щоб чарт можна було встановити двічі)
     nodePort: ""
   containerPort: 3000
+  # Довільні змінні оточення контейнера API (DevOps, Лаб. №7), напр. FAIL_RATE.
+  # На відміну від ConfigMap, зміна тут змінює шаблон пода — і Rollout запускає новий реліз з аналізом.
+  env: []
+  #  - name: FAIL_RATE        # частка запитів (0..1), на які под відповідає 500 — «погана версія»
+  #    value: "0"
   resources:
     requests:
       cpu: 50m
@@ -51,6 +56,26 @@ api:
           - setWeight: 75        # 3 : 1
           - pause: { duration: 30s }
           # після останнього кроку — 100 %: canary стає stable, старий ReplicaSet масштабується до 0
+    # --- Автоматичний відкат за метриками (DevOps, Лаб. №7) ---
+    # true -> AnalysisTemplate <fullname>-api-success-rate: частка відповідей не-5xx за Prometheus має бути >= 95 %.
+    # Крок `analysis` у strategy.canary.steps посилається на нього; провал аналізу = abort і повернення на stable.
+    analysis:
+      enabled: false
+      prometheusAddress: http://kps-prometheus.monitoring:9090
+      # Фільтр PromQL; порожньо -> namespace="<namespace релізу>",service="<fullname>-api"
+      selector: ""
+      successThreshold: 0.95
+
+# --- Метрики й моніторинг (DevOps, Лаб. №7; потрібен kube-prometheus-stack у кластері) ---
+metrics:
+  # ServiceMonitor (Prometheus скрейпить /metrics подів API) і ConfigMap з дашбордом Grafana
+  enabled: false
+  path: /metrics
+  interval: 15s
+  # PrometheusRule: алерт, якщо частка 5xx > 5 % протягом 1 хв
+  alerts:
+    enabled: false
+    errorRateThreshold: 0.05
 
 # --- Конфігурація застосунку (ConfigMap) ---
 config:
@@ -58,6 +83,8 @@ config:
   port: 3000
   # Штучна затримка кожного запиту, мс (0 = вимкнено)
   syntheticDelayMs: 0
+  # Формат логів: json (один об'єкт на рядок, для Loki) | text; порожньо -> json при NODE_ENV=production
+  logFormat: ""
 
 # --- Ingress (необов'язковий) ---
 ingress:

@@ -1,0 +1,15 @@
+{{- if .Values.metrics.enabled }}
+# DevOps, Лаб. №7, п. 4: дашборд Grafana з Git. Sidecar Grafana (kps) знаходить ConfigMap-и з міткою
+# grafana_dashboard: "1" в усіх namespace (sidecar.dashboards.searchNamespace: ALL) і завантажує JSON.
+# Правка дашборда: змінити в Grafana -> Share -> Export -> Save to file -> dashboards/booking-hotel.json -> коміт.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "booking-hotel.fullname" . }}-dashboard
+  labels:
+    {{- include "booking-hotel.labels" (dict "ctx" $ "component" "monitoring") | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  booking-hotel.json: |-
+{{ .Files.Get "dashboards/booking-hotel.json" | indent 4 }}
+{{- end }}

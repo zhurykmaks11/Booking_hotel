@@ -1,0 +1,29 @@
+{{- if .Values.api.rollout.analysis.enabled }}
+{{- if not .Values.metrics.enabled }}
+{{- fail "api.rollout.analysis.enabled: потрібно metrics.enabled=true — аналіз читає метрики, які збирає ServiceMonitor" }}
+{{- end }}
+{{- $sel := include "booking-hotel.metricsSelector" . }}
+# DevOps, Лаб. №7: автоматичний відкат за метриками. Argo Rollouts виконує запит до Prometheus кожні 30 с;
+# частка відповідей не-5xx < порогу двічі (failureLimit: 1) -> AnalysisRun Failed -> abort, трафік на stable.
+# Без трафіку запит дає 0/0 = NaN і аналіз провалюється — під час релізу потрібне фонове навантаження.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ include "booking-hotel.analysisTemplateName" . }}
+  labels:
+    {{- include "booking-hotel.labels" (dict "ctx" $ "component" "api") | nindent 4 }}
+spec:
+  metrics:
+    - name: success-rate
+      interval: 30s
+      count: 4
+      failureLimit: 1
+      successCondition: result[0] >= {{ .Values.api.rollout.analysis.successThreshold }}
+      provider:
+        prometheus:
+          address: {{ .Values.api.rollout.analysis.prometheusAddress }}
+          query: |
+            sum(rate(http_requests_total{ {{- $sel -}} ,status!~"5.."}[1m]))
+            /
+            sum(rate(http_requests_total{ {{- $sel -}} }[1m]))
+{{- end }}

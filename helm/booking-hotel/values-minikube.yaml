@@ -1,19 +1,46 @@
-# Середовище minikube під керуванням Argo CD (DevOps, Лаб. №5–6).
-# Цей файл — "джерело правди": зміна тега / реплік тут + git push = зміна в кластері.
+# Середовище minikube під керуванням Argo CD (DevOps, Лаб. №5–7).
+# Цей файл — "джерело правди": зміна тега / реплік / FAIL_RATE тут + git push = зміна в кластері.
 api:
-  # Лаб. №6: не менше 4 реплік, щоб було видно співвідношення версій під час canary
-  replicaCount: 4
+  # Лаб. №7: 5 реплік — canary 20 % = рівно 1 под нової версії (Лаб. №6: було 4)
+  replicaCount: 5
   image:
     repository: ghcr.io/zhurykmaks11/booking-hotel-api
-    tag: "1.2.0"
+    # 1.5.0 — перша версія з /metrics, JSON-логами і FAIL_RATE (Лаб. №7)
+    tag: "1.5.0"
     pullPolicy: IfNotPresent
-  # Лаб. №6: Rollout замість Deployment. Кроки canary — у values.yaml (api.rollout.strategy).
-  # Реліз = зміна tag вище + коміт; promote / abort — kubectl argo rollouts або інтерфейс Argo CD.
+  # Лаб. №7: «погана версія» для демонстрації автоматичного відкату — FAIL_RATE: "0.5" + коміт.
+  # Змінна в шаблоні пода, тож її зміна запускає новий реліз (canary + аналіз), як і зміна тега.
+  env:
+    - name: FAIL_RATE
+      value: "0"
   rollout:
+    enabled: true
+    # Лаб. №7: рішення promote / abort приймає аналіз метрик (AnalysisTemplate booking-hotel-api-success-rate),
+    # а не людина — ручну паузу з Лаб. №6 прибрано
+    analysis:
+      enabled: true
+      prometheusAddress: http://kps-prometheus.monitoring:9090
+    strategy:
+      canary:
+        steps:
+          - setWeight: 20                   # 1 под нової версії : 4 stable
+          - pause: { duration: 30s }        # дати метрикам накопичитися (scrape 15 с, rate за 1 хв)
+          - analysis:
+              templates:
+                - templateName: booking-hotel-api-success-rate
+          - setWeight: 60                   # 3 : 2
+          - pause: { duration: 30s }
+          # далі 100 %: canary стає stable
+
+# Лаб. №7: ServiceMonitor, дашборд Grafana (ConfigMap) і алерт на частку 5xx
+metrics:
+  enabled: true
+  alerts:
     enabled: true
 
 config:
   nodeEnv: production
+  logFormat: json
 
 ingress:
   enabled: false

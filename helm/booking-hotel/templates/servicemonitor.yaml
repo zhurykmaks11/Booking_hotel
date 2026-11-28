@@ -1,0 +1,23 @@
+{{- if .Values.metrics.enabled }}
+# DevOps, Лаб. №7: Prometheus Operator знаходить Service API за мітками і скрейпить /metrics кожного пода.
+# Потрібен CRD ServiceMonitor (kube-prometheus-stack, argocd-apps/kps.yaml).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "booking-hotel.componentName" (dict "ctx" $ "component" "api") }}
+  labels:
+    {{- include "booking-hotel.labels" (dict "ctx" $ "component" "api") | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "booking-hotel.selectorLabels" (dict "ctx" $ "component" "api") | nindent 6 }}
+  # Мітки пода -> мітки метрик: версія образу (app_kubernetes_io_version) і ReplicaSet Rollout-а
+  # (rollouts_pod_template_hash) — на дашборді видно трафік і помилки stable vs canary
+  podTargetLabels:
+    - app.kubernetes.io/version
+    - rollouts-pod-template-hash
+  endpoints:
+    - port: http                  # ім'я порту в Service (api-service.yaml)
+      path: {{ .Values.metrics.path }}
+      interval: {{ .Values.metrics.interval }}
+{{- end }}

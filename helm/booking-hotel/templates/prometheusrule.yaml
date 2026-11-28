@@ -1,0 +1,24 @@
+{{- if and .Values.metrics.enabled .Values.metrics.alerts.enabled }}
+{{- $sel := include "booking-hotel.metricsSelector" . }}
+# DevOps, Лаб. №7 (п. d): алерт на частку 5xx. Стан — Prometheus -> Alerts (Pending -> Firing) і Alertmanager.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "booking-hotel.componentName" (dict "ctx" $ "component" "api") }}-alerts
+  labels:
+    {{- include "booking-hotel.labels" (dict "ctx" $ "component" "api") | nindent 4 }}
+spec:
+  groups:
+    - name: booking-hotel
+      rules:
+        - alert: BookingHotelHighErrorRate
+          expr: |
+            sum(rate(http_requests_total{ {{- $sel -}} ,status=~"5.."}[1m]))
+              / sum(rate(http_requests_total{ {{- $sel -}} }[1m])) > {{ .Values.metrics.alerts.errorRateThreshold }}
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "booking-hotel API: більше {{ mulf .Values.metrics.alerts.errorRateThreshold 100 }}% відповідей 5xx"
+            description: {{ printf "Частка 5xx: {{ $value | humanizePercentage }} (namespace %s)" .Release.Namespace | quote }}
+{{- end }}
