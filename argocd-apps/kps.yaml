@@ -1,0 +1,60 @@
+# kube-prometheus-stack (DevOps, Лаб. №7): Prometheus + Grafana + Alertmanager + Prometheus Operator.
+# Назва Application = назва релізу; fullnameOverride дає короткі імена сервісів: kps-prometheus, kps-grafana.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kps
+  namespace: argocd
+  annotations:
+    # CRD ServiceMonitor / PrometheusRule мають існувати раніше за чарт застосунку (wave 0)
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 94.2.0          # helm search repo prometheus-community/kube-prometheus-stack
+    helm:
+      valuesObject:
+        fullnameOverride: kps
+        # компоненти control plane minikube недоступні для скрейпу — вимикаємо, щоб не було шуму
+        kubeEtcd: { enabled: false }
+        kubeControllerManager: { enabled: false }
+        kubeScheduler: { enabled: false }
+        kubeProxy: { enabled: false }
+        # менше рухомих частин: без admission webhook і його TLS-джобів
+        prometheusOperator:
+          admissionWebhooks: { enabled: false }
+          tls: { enabled: false }
+        prometheus:
+          prometheusSpec:
+            retention: 2d
+            # підхоплювати ServiceMonitor / PodMonitor / PrometheusRule з усіх namespace без мітки release
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+        grafana:
+          # Пароль не в Git: Secret створюється вручну (kubectl -n monitoring create secret generic grafana-admin ...).
+          # Інакше чарт генерував би випадковий пароль на кожному рендерингу Argo CD.
+          admin:
+            existingSecret: grafana-admin
+            userKey: admin-user
+            passwordKey: admin-password
+          sidecar:
+            dashboards:
+              searchNamespace: ALL    # дашборди — ConfigMap-и з міткою grafana_dashboard: "1" у будь-якому namespace
+          additionalDataSources:
+            - name: Loki
+              uid: loki
+              type: loki
+              access: proxy
+              url: http://loki-gateway.monitoring
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions:
+      - CreateNamespace=true
+      # CRD Prometheus / Alertmanager завеликі для client-side apply
+      - ServerSideApply=true
